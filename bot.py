@@ -1,83 +1,32 @@
 import os
-import secrets
 import requests
-from flask import Flask, request, redirect
+from flask import Flask, request
 
 app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-TIKTOK_CLIENT_KEY = os.environ.get("TIKTOK_CLIENT_KEY")
-TIKTOK_CLIENT_SECRET = os.environ.get("TIKTOK_CLIENT_SECRET")
 
-REDIRECT_URI = "https://social-profile-analyzer-0kea.onrender.com/tiktok/callback"
+# حفظ مؤقت للمنتجات التي يبحث عنها المستخدمون
+user_state = {}
 
-# Temporary storage for OAuth states
-oauth_states = set()
+
+def send_message(chat_id, text, reply_markup=None):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+
+    data = {
+        "chat_id": chat_id,
+        "text": text,
+    }
+
+    if reply_markup:
+        data["reply_markup"] = reply_markup
+
+    requests.post(url, json=data, timeout=10)
 
 
 @app.route("/", methods=["GET"])
 def home():
-    return """
-    <h1>Social Profile Analyzer</h1>
-    <p>Service is running.</p>
-    <p><a href="/tiktok/login">Login with TikTok</a></p>
-    """
-
-
-@app.route("/tiktok/login", methods=["GET"])
-def tiktok_login():
-    state = secrets.token_urlsafe(32)
-    oauth_states.add(state)
-
-    url = (
-        "https://www.tiktok.com/v2/auth/authorize/"
-        f"?client_key={TIKTOK_CLIENT_KEY}"
-        "&response_type=code"
-        "&scope=user.info.basic"
-        f"&redirect_uri={REDIRECT_URI}"
-        f"&state={state}"
-    )
-
-    return redirect(url)
-
-
-@app.route("/tiktok/callback", methods=["GET"])
-def tiktok_callback():
-    code = request.args.get("code")
-    state = request.args.get("state")
-
-    if not code:
-        return "TikTok authorization failed: no code received.", 400
-
-    if not state or state not in oauth_states:
-        return "Invalid OAuth state.", 400
-
-    oauth_states.discard(state)
-
-    token_url = "https://open.tiktokapis.com/v2/oauth/token/"
-
-    response = requests.post(
-        token_url,
-        data={
-            "client_key": TIKTOK_CLIENT_KEY,
-            "client_secret": TIKTOK_CLIENT_SECRET,
-            "code": code,
-            "grant_type": "authorization_code",
-            "redirect_uri": REDIRECT_URI,
-        },
-        timeout=15,
-    )
-
-    if response.status_code != 200:
-        return "TikTok token exchange failed.", 400
-
-    token_data = response.json()
-
-    return f"""
-    <h1>TikTok connected successfully</h1>
-    <p>Your TikTok authorization was received.</p>
-    <p>Access token received: {'yes' if token_data.get('access_token') else 'no'}</p>
-    """
+    return "Algeria Price Tracker Bot is running!"
 
 
 @app.route("/telegram/webhook", methods=["POST"])
@@ -87,24 +36,129 @@ def telegram_webhook():
     message = data.get("message", {})
     chat = message.get("chat", {})
     chat_id = chat.get("id")
-    text = message.get("text", "")
+    text = message.get("text", "").strip()
 
-    if chat_id and text and BOT_TOKEN:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    if not chat_id:
+        return "OK"
 
-        if text == "/start":
-            reply = (
-                "Welcome to Social Profile Analyzer!\n\n"
-                "Your Telegram bot is connected successfully."
-            )
-        else:
-            reply = "Received: " + text
+    # بدء البوت
+    if text == "/start":
+        keyboard = {
+            "keyboard": [
+                ["🔎 ابحث عن منتج"],
+                ["🔔 إنشاء تنبيه سعر"],
+                ["📋 منتجاتي المتابعة"],
+                ["ℹ️ المساعدة"]
+            ],
+            "resize_keyboard": True
+        }
 
-        requests.post(
-            url,
-            json={"chat_id": chat_id, "text": reply},
-            timeout=10,
+        user_state[chat_id] = {"step": None}
+
+        send_message(
+            chat_id,
+            "🇩🇿 مرحبًا بك في بوت متابعة الأسعار!\n\n"
+            "يمكنك البحث عن منتج وإنشاء تنبيه لسعره.",
+            keyboard
         )
+
+    elif text == "🔎 ابحث عن منتج":
+        user_state[chat_id] = {"step": "search"}
+
+        send_message(
+            chat_id,
+            "🔎 اكتب اسم المنتج الذي تبحث عنه.\n\n"
+            "مثال: iPhone 15"
+        )
+
+    elif text == "🔔 إنشاء تنبيه سعر":
+        user_state[chat_id] = {"step": "product_for_alert"}
+
+        send_message(
+            chat_id,
+            "📦 اكتب اسم المنتج الذي تريد متابعة سعره."
+        )
+
+    elif text == "📋 منتجاتي المتابعة":
+        send_message(
+            chat_id,
+            "📋 لا توجد منتجات محفوظة للمتابعة حتى الآن."
+        )
+
+    elif text == "ℹ️ المساعدة":
+        send_message(
+            chat_id,
+            "ℹ️ طريقة الاستخدام:\n\n"
+            "1️⃣ اضغط 🔎 ابحث عن منتج\n"
+            "2️⃣ اكتب اسم المنتج\n"
+            "3️⃣ يمكنك لاحقًا إنشاء تنبيه للسعر\n\n"
+            "🇩🇿 الأسعار ستكون بالدينار الجزائري."
+        )
+
+    else:
+        state = user_state.get(chat_id, {})
+        step = state.get("step")
+
+        if step == "search":
+            product = text
+
+            user_state[chat_id] = {
+                "step": None,
+                "product": product
+            }
+
+            send_message(
+                chat_id,
+                f"🔎 تم تسجيل بحثك عن:\n\n📦 {product}\n\n"
+                "🚧 ميزة جلب الأسعار من المتاجر ستتم إضافتها في المرحلة القادمة."
+            )
+
+        elif step == "product_for_alert":
+            product = text
+
+            user_state[chat_id] = {
+                "step": "target_price",
+                "product": product
+            }
+
+            send_message(
+                chat_id,
+                f"📦 المنتج: {product}\n\n"
+                "💰 الآن اكتب السعر الذي تريد أن يتم تنبيهك عند الوصول إليه بالدينار الجزائري.\n\n"
+                "مثال: 100000"
+            )
+
+        elif step == "target_price":
+            try:
+                price = float(text.replace(" ", "").replace(",", "."))
+
+                product = state.get("product", "منتج")
+
+                user_state[chat_id] = {
+                    "step": None,
+                    "product": product,
+                    "target_price": price
+                }
+
+                send_message(
+                    chat_id,
+                    f"✅ تم إنشاء التنبيه!\n\n"
+                    f"📦 المنتج: {product}\n"
+                    f"🎯 السعر المطلوب: {price:,.0f} دج\n\n"
+                    "🔔 سنستخدم مصدر أسعار مدعومًا لإرسال التنبيه عند توفر السعر المناسب."
+                )
+
+            except ValueError:
+                send_message(
+                    chat_id,
+                    "❌ اكتب السعر بالأرقام فقط.\n\nمثال: 100000"
+                )
+
+        else:
+            send_message(
+                chat_id,
+                "اكتب /start لفتح القائمة الرئيسية."
+            )
 
     return "OK"
 

@@ -21,7 +21,10 @@ def send_message(chat_id, text, reply_markup=None):
     if reply_markup:
         data["reply_markup"] = reply_markup
 
-    requests.post(url, json=data, timeout=15)
+    try:
+        requests.post(url, json=data, timeout=15)
+    except Exception as error:
+        print("Telegram error:", error)
 
 
 def search_phone(phone_name):
@@ -33,7 +36,11 @@ def search_phone(phone_name):
         "page": 1
     }
 
-    response = requests.get(url, params=params, timeout=15)
+    response = requests.get(
+        url,
+        params=params,
+        timeout=15
+    )
 
     print("MobileAPI status:", response.status_code)
     print("MobileAPI response:", response.text[:2000])
@@ -55,6 +62,7 @@ def telegram_webhook():
 
     message = data.get("message", {})
     chat = message.get("chat", {})
+
     chat_id = chat.get("id")
     text = message.get("text", "").strip()
 
@@ -62,6 +70,7 @@ def telegram_webhook():
         return "OK"
 
     if text == "/start":
+
         keyboard = {
             "keyboard": [
                 ["🔎 ابحث عن هاتف"],
@@ -72,17 +81,24 @@ def telegram_webhook():
             "resize_keyboard": True
         }
 
-        user_state[chat_id] = {"step": None}
+        user_state[chat_id] = {
+            "step": None
+        }
 
         send_message(
             chat_id,
             "🇩🇿 مرحبًا بك في SOK DZAYR 📱\n\n"
-            "ابحث عن هاتف لمعرفة مواصفاته.",
+            "يمكنك البحث عن أي هاتف ومعرفة معلوماته.",
             keyboard
         )
 
-    elif text == "🔎 ابحث عن هاتف":
-        user_state[chat_id] = {"step": "search"}
+        return "OK"
+
+    if text == "🔎 ابحث عن هاتف":
+
+        user_state[chat_id] = {
+            "step": "search"
+        }
 
         send_message(
             chat_id,
@@ -92,182 +108,217 @@ def telegram_webhook():
             "Samsung Galaxy S24 Ultra"
         )
 
-    elif text == "🔔 إنشاء تنبيه سعر":
-        user_state[chat_id] = {"step": "alert_product"}
+        return "OK"
+
+    if text == "🔔 إنشاء تنبيه سعر":
+
+        user_state[chat_id] = {
+            "step": "alert_product"
+        }
 
         send_message(
             chat_id,
             "📱 اكتب اسم الهاتف الذي تريد متابعة سعره."
         )
 
-    elif text == "📋 هواتفي المتابعة":
+        return "OK"
+
+    if text == "📋 هواتفي المتابعة":
+
         send_message(
             chat_id,
             "📋 لا توجد هواتف محفوظة حاليًا."
         )
 
-    elif text == "ℹ️ المساعدة":
+        return "OK"
+
+    if text == "ℹ️ المساعدة":
+
         send_message(
             chat_id,
-            "ℹ️ طريقة الاستخدام:\n\n"
-            "🔎 ابحث عن هاتف\n"
-            "اكتب اسم الهاتف وسأبحث عن مواصفاته.\n\n"
-            "🔔 يمكنك لاحقًا إنشاء تنبيه للسعر."
+            "ℹ️ المساعدة\n\n"
+            "🔎 ابحث عن هاتف:\n"
+            "اكتب اسم الهاتف وسأبحث عن معلوماته.\n\n"
+            "🔔 تنبيه السعر:\n"
+            "يمكنك إنشاء تنبيه، وسنضيف مراقبة الأسعار لاحقًا."
         )
 
-    else:
-        state = user_state.get(chat_id, {})
-        step = state.get("step")
+        return "OK"
 
-        if step == "search":
-            phone_name = text
+    state = user_state.get(chat_id, {})
+    step = state.get("step")
 
-            try:
-                result = search_phone(phone_name)
+    if step == "search":
 
-                if result is None:
-                    send_message(
-                        chat_id,
-                        "❌ حدث خطأ في الاتصال بخدمة معلومات الهواتف."
-                    )
-                    return "OK"
+        phone_name = text
 
-                devices = result.get("devices", [])
+        try:
 
-                if not devices:
-                    send_message(
-                        chat_id,
-                        f"❌ لم أجد هاتفًا مطابقًا لـ:\n\n{phone_name}"
-                    )
-                    return "OK"
+            result = search_phone(phone_name)
 
-                device = devices[0]
-
-                name = device.get("name", "غير معروف")
-                manufacturer = device.get(
-                    "manufacturer_name",
-                    "غير معروف"
-                )
-
-                match = device.get(
-                    "match_certainty",
-                    "غير معروف"
-                )
-
-                description = device.get(
-                    "description",
-                    ""
-                )
-
-                storage = device.get(
-                    "storage",
-                    "غير معروف"
-                )
-
-                screen = device.get(
-                    "screen_resolution",
-                    "غير معروف"
-                )
-
-                camera = device.get(
-                    "camera",
-                    "غير معروف"
-                )
-
-                battery = device.get(
-                    "battery_capacity",
-                    "غير معروف"
-                )
-
-                hardware = device.get(
-                    "hardware",
-                    "غير معروف"
-                )
-
-                message_text = (
-                    f"📱 {name}\n\n"
-                    f"🏢 الشركة: {manufacturer}\n"
-                    f"🎯 دقة المطابقة: {match}\n\n"
-                    f"📺 الشاشة: {screen}\n"
-                    f"📸 الكاميرا: {camera}\n"
-                    f"🔋 البطارية: {battery}\n"
-                    f"⚙️ المعالج/RAM: {hardware}\n"
-                    f"💾 التخزين: {storage}\n"
-                )
-
-                if description:
-                    message_text += (
-                        f"\n📝 الوصف:\n{description}"
-                    )
-
-                send_message(chat_id, message_text)
-
-            except Exception as error:
-                print("Search error:", error)
+            if result is None:
 
                 send_message(
                     chat_id,
-                    "❌ حدث خطأ أثناء البحث. تحقق من Logs في Render."
+                    "❌ حدث خطأ في الاتصال بخدمة معلومات الهواتف."
                 )
 
-            user_state[chat_id] = {"step": None}
+                return "OK"
 
-        elif step == "alert_product":
+            devices = result.get("devices", [])
+
+            if not devices:
+
+                send_message(
+                    chat_id,
+                    f"❌ لم أجد هاتفًا باسم:\n\n{phone_name}\n\n"
+                    "جرّب اسمًا آخر مثل:\n"
+                    "iPhone 15\n"
+                    "Samsung Galaxy S24"
+                )
+
+                user_state[chat_id] = {
+                    "step": None
+                }
+
+                return "OK"
+
+            device = devices[0]
+
+            name = device.get(
+                "name",
+                "غير معروف"
+            )
+
+            manufacturer = device.get(
+                "manufacturer_name",
+                "غير معروف"
+            )
+
+            match = device.get(
+                "match_certainty",
+                "غير معروف"
+            )
+
+            description = device.get(
+                "description",
+                ""
+            )
+
+            message_text = (
+                f"📱 {name}\n\n"
+                f"🏢 الشركة: {manufacturer}\n"
+                f"🎯 دقة المطابقة: {match}\n"
+            )
+
+            if description:
+                message_text += (
+                    f"\n📝 الوصف:\n{description}\n"
+                )
+
+            message_text += (
+                "\n📋 تم العثور على الهاتف بنجاح.\n"
+                "سنضيف التفاصيل الإضافية في التطوير القادم."
+            )
+
+            send_message(
+                chat_id,
+                message_text
+            )
+
+        except Exception as error:
+
+            print("Search error:", error)
+
+            send_message(
+                chat_id,
+                "❌ حدث خطأ أثناء البحث.\n"
+                "تحقق من Logs في Render."
+            )
+
+        user_state[chat_id] = {
+            "step": None
+        }
+
+        return "OK"
+
+    if step == "alert_product":
+
+        user_state[chat_id] = {
+            "step": "target_price",
+            "product": text
+        }
+
+        send_message(
+            chat_id,
+            f"📱 الهاتف: {text}\n\n"
+            "💰 اكتب السعر المستهدف بالدينار الجزائري.\n\n"
+            "مثال:\n"
+            "100000"
+        )
+
+        return "OK"
+
+    if step == "target_price":
+
+        try:
+
+            price = float(
+                text.replace(" ", "")
+            )
+
+            product = state.get(
+                "product",
+                "الهاتف"
+            )
+
             user_state[chat_id] = {
-                "step": "target_price",
-                "product": text
+                "step": None,
+                "product": product,
+                "target_price": price
             }
 
             send_message(
                 chat_id,
-                f"📱 الهاتف: {text}\n\n"
-                "💰 اكتب السعر المستهدف بالدينار الجزائري.\n\n"
-                "مثال: 100000"
+                f"✅ تم إنشاء التنبيه!\n\n"
+                f"📱 الهاتف: {product}\n"
+                f"🎯 السعر المستهدف: {price:,.0f} دج\n\n"
+                "🔔 سنربط مراقبة السعر بمصدر الأسعار لاحقًا."
             )
 
-        elif step == "target_price":
-            try:
-                price = float(
-                    text.replace(" ", "").replace(",", ".")
-                )
+        except ValueError:
 
-                product = state.get("product", "الهاتف")
-
-                user_state[chat_id] = {
-                    "step": None,
-                    "product": product,
-                    "target_price": price
-                }
-
-                send_message(
-                    chat_id,
-                    f"✅ تم إنشاء التنبيه!\n\n"
-                    f"📱 الهاتف: {product}\n"
-                    f"🎯 السعر: {price:,.0f} دج\n\n"
-                    "🔔 سنربط التنبيه بمصدر الأسعار في المرحلة القادمة."
-                )
-
-            except ValueError:
-                send_message(
-                    chat_id,
-                    "❌ أدخل السعر بالأرقام فقط.\n\n"
-                    "مثال: 100000"
-                )
-
-        else:
             send_message(
                 chat_id,
-                "اكتب /start لفتح القائمة الرئيسية."
+                "❌ أدخل السعر بالأرقام فقط.\n\n"
+                "مثال:\n"
+                "100000"
             )
+
+        return "OK"
+
+    send_message(
+        chat_id,
+        "اكتب /start لفتح القائمة الرئيسية."
+    )
 
     return "OK"
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    port = int(
+        os.environ.get(
+            "PORT",
+            10000
+        )
+    )
 
-writing{variant="document" id="58321"}
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
+
+writing{variant="document" id="74163"}
 ```python
 import os
 import requests
@@ -292,7 +343,10 @@ def send_message(chat_id, text, reply_markup=None):
     if reply_markup:
         data["reply_markup"] = reply_markup
 
-    requests.post(url, json=data, timeout=15)
+    try:
+        requests.post(url, json=data, timeout=15)
+    except Exception as error:
+        print("Telegram error:", error)
 
 
 def search_phone(phone_name):
@@ -304,7 +358,11 @@ def search_phone(phone_name):
         "page": 1
     }
 
-    response = requests.get(url, params=params, timeout=15)
+    response = requests.get(
+        url,
+        params=params,
+        timeout=15
+    )
 
     print("MobileAPI status:", response.status_code)
     print("MobileAPI response:", response.text[:2000])
@@ -326,6 +384,7 @@ def telegram_webhook():
 
     message = data.get("message", {})
     chat = message.get("chat", {})
+
     chat_id = chat.get("id")
     text = message.get("text", "").strip()
 
@@ -333,6 +392,7 @@ def telegram_webhook():
         return "OK"
 
     if text == "/start":
+
         keyboard = {
             "keyboard": [
                 ["🔎 ابحث عن هاتف"],
@@ -343,17 +403,24 @@ def telegram_webhook():
             "resize_keyboard": True
         }
 
-        user_state[chat_id] = {"step": None}
+        user_state[chat_id] = {
+            "step": None
+        }
 
         send_message(
             chat_id,
             "🇩🇿 مرحبًا بك في SOK DZAYR 📱\n\n"
-            "ابحث عن هاتف لمعرفة مواصفاته.",
+            "يمكنك البحث عن أي هاتف ومعرفة معلوماته.",
             keyboard
         )
 
-    elif text == "🔎 ابحث عن هاتف":
-        user_state[chat_id] = {"step": "search"}
+        return "OK"
+
+    if text == "🔎 ابحث عن هاتف":
+
+        user_state[chat_id] = {
+            "step": "search"
+        }
 
         send_message(
             chat_id,
@@ -363,177 +430,212 @@ def telegram_webhook():
             "Samsung Galaxy S24 Ultra"
         )
 
-    elif text == "🔔 إنشاء تنبيه سعر":
-        user_state[chat_id] = {"step": "alert_product"}
+        return "OK"
+
+    if text == "🔔 إنشاء تنبيه سعر":
+
+        user_state[chat_id] = {
+            "step": "alert_product"
+        }
 
         send_message(
             chat_id,
             "📱 اكتب اسم الهاتف الذي تريد متابعة سعره."
         )
 
-    elif text == "📋 هواتفي المتابعة":
+        return "OK"
+
+    if text == "📋 هواتفي المتابعة":
+
         send_message(
             chat_id,
             "📋 لا توجد هواتف محفوظة حاليًا."
         )
 
-    elif text == "ℹ️ المساعدة":
+        return "OK"
+
+    if text == "ℹ️ المساعدة":
+
         send_message(
             chat_id,
-            "ℹ️ طريقة الاستخدام:\n\n"
-            "🔎 ابحث عن هاتف\n"
-            "اكتب اسم الهاتف وسأبحث عن مواصفاته.\n\n"
-            "🔔 يمكنك لاحقًا إنشاء تنبيه للسعر."
+            "ℹ️ المساعدة\n\n"
+            "🔎 ابحث عن هاتف:\n"
+            "اكتب اسم الهاتف وسأبحث عن معلوماته.\n\n"
+            "🔔 تنبيه السعر:\n"
+            "يمكنك إنشاء تنبيه، وسنضيف مراقبة الأسعار لاحقًا."
         )
 
-    else:
-        state = user_state.get(chat_id, {})
-        step = state.get("step")
+        return "OK"
 
-        if step == "search":
-            phone_name = text
+    state = user_state.get(chat_id, {})
+    step = state.get("step")
 
-            try:
-                result = search_phone(phone_name)
+    if step == "search":
 
-                if result is None:
-                    send_message(
-                        chat_id,
-                        "❌ حدث خطأ في الاتصال بخدمة معلومات الهواتف."
-                    )
-                    return "OK"
+        phone_name = text
 
-                devices = result.get("devices", [])
+        try:
 
-                if not devices:
-                    send_message(
-                        chat_id,
-                        f"❌ لم أجد هاتفًا مطابقًا لـ:\n\n{phone_name}"
-                    )
-                    return "OK"
+            result = search_phone(phone_name)
 
-                device = devices[0]
-
-                name = device.get("name", "غير معروف")
-                manufacturer = device.get(
-                    "manufacturer_name",
-                    "غير معروف"
-                )
-
-                match = device.get(
-                    "match_certainty",
-                    "غير معروف"
-                )
-
-                description = device.get(
-                    "description",
-                    ""
-                )
-
-                storage = device.get(
-                    "storage",
-                    "غير معروف"
-                )
-
-                screen = device.get(
-                    "screen_resolution",
-                    "غير معروف"
-                )
-
-                camera = device.get(
-                    "camera",
-                    "غير معروف"
-                )
-
-                battery = device.get(
-                    "battery_capacity",
-                    "غير معروف"
-                )
-
-                hardware = device.get(
-                    "hardware",
-                    "غير معروف"
-                )
-
-                message_text = (
-                    f"📱 {name}\n\n"
-                    f"🏢 الشركة: {manufacturer}\n"
-                    f"🎯 دقة المطابقة: {match}\n\n"
-                    f"📺 الشاشة: {screen}\n"
-                    f"📸 الكاميرا: {camera}\n"
-                    f"🔋 البطارية: {battery}\n"
-                    f"⚙️ المعالج/RAM: {hardware}\n"
-                    f"💾 التخزين: {storage}\n"
-                )
-
-                if description:
-                    message_text += (
-                        f"\n📝 الوصف:\n{description}"
-                    )
-
-                send_message(chat_id, message_text)
-
-            except Exception as error:
-                print("Search error:", error)
+            if result is None:
 
                 send_message(
                     chat_id,
-                    "❌ حدث خطأ أثناء البحث. تحقق من Logs في Render."
+                    "❌ حدث خطأ في الاتصال بخدمة معلومات الهواتف."
                 )
 
-            user_state[chat_id] = {"step": None}
+                return "OK"
 
-        elif step == "alert_product":
+            devices = result.get("devices", [])
+
+            if not devices:
+
+                send_message(
+                    chat_id,
+                    f"❌ لم أجد هاتفًا باسم:\n\n{phone_name}\n\n"
+                    "جرّب اسمًا آخر مثل:\n"
+                    "iPhone 15\n"
+                    "Samsung Galaxy S24"
+                )
+
+                user_state[chat_id] = {
+                    "step": None
+                }
+
+                return "OK"
+
+            device = devices[0]
+
+            name = device.get(
+                "name",
+                "غير معروف"
+            )
+
+            manufacturer = device.get(
+                "manufacturer_name",
+                "غير معروف"
+            )
+
+            match = device.get(
+                "match_certainty",
+                "غير معروف"
+            )
+
+            description = device.get(
+                "description",
+                ""
+            )
+
+            message_text = (
+                f"📱 {name}\n\n"
+                f"🏢 الشركة: {manufacturer}\n"
+                f"🎯 دقة المطابقة: {match}\n"
+            )
+
+            if description:
+                message_text += (
+                    f"\n📝 الوصف:\n{description}\n"
+                )
+
+            message_text += (
+                "\n📋 تم العثور على الهاتف بنجاح.\n"
+                "سنضيف التفاصيل الإضافية في التطوير القادم."
+            )
+
+            send_message(
+                chat_id,
+                message_text
+            )
+
+        except Exception as error:
+
+            print("Search error:", error)
+
+            send_message(
+                chat_id,
+                "❌ حدث خطأ أثناء البحث.\n"
+                "تحقق من Logs في Render."
+            )
+
+        user_state[chat_id] = {
+            "step": None
+        }
+
+        return "OK"
+
+    if step == "alert_product":
+
+        user_state[chat_id] = {
+            "step": "target_price",
+            "product": text
+        }
+
+        send_message(
+            chat_id,
+            f"📱 الهاتف: {text}\n\n"
+            "💰 اكتب السعر المستهدف بالدينار الجزائري.\n\n"
+            "مثال:\n"
+            "100000"
+        )
+
+        return "OK"
+
+    if step == "target_price":
+
+        try:
+
+            price = float(
+                text.replace(" ", "")
+            )
+
+            product = state.get(
+                "product",
+                "الهاتف"
+            )
+
             user_state[chat_id] = {
-                "step": "target_price",
-                "product": text
+                "step": None,
+                "product": product,
+                "target_price": price
             }
 
             send_message(
                 chat_id,
-                f"📱 الهاتف: {text}\n\n"
-                "💰 اكتب السعر المستهدف بالدينار الجزائري.\n\n"
-                "مثال: 100000"
+                f"✅ تم إنشاء التنبيه!\n\n"
+                f"📱 الهاتف: {product}\n"
+                f"🎯 السعر المستهدف: {price:,.0f} دج\n\n"
+                "🔔 سنربط مراقبة السعر بمصدر الأسعار لاحقًا."
             )
 
-        elif step == "target_price":
-            try:
-                price = float(
-                    text.replace(" ", "").replace(",", ".")
-                )
+        except ValueError:
 
-                product = state.get("product", "الهاتف")
-
-                user_state[chat_id] = {
-                    "step": None,
-                    "product": product,
-                    "target_price": price
-                }
-
-                send_message(
-                    chat_id,
-                    f"✅ تم إنشاء التنبيه!\n\n"
-                    f"📱 الهاتف: {product}\n"
-                    f"🎯 السعر: {price:,.0f} دج\n\n"
-                    "🔔 سنربط التنبيه بمصدر الأسعار في المرحلة القادمة."
-                )
-
-            except ValueError:
-                send_message(
-                    chat_id,
-                    "❌ أدخل السعر بالأرقام فقط.\n\n"
-                    "مثال: 100000"
-                )
-
-        else:
             send_message(
                 chat_id,
-                "اكتب /start لفتح القائمة الرئيسية."
+                "❌ أدخل السعر بالأرقام فقط.\n\n"
+                "مثال:\n"
+                "100000"
             )
+
+        return "OK"
+
+    send_message(
+        chat_id,
+        "اكتب /start لفتح القائمة الرئيسية."
+    )
 
     return "OK"
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    port = int(
+        os.environ.get(
+            "PORT",
+            10000
+        )
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )

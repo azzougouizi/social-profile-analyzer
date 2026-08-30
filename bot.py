@@ -5,8 +5,8 @@ from flask import Flask, request
 app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+MOBILE_API_KEY = os.environ.get("MOBILE_API_KEY")
 
-# حفظ مؤقت للمنتجات التي يبحث عنها المستخدمون
 user_state = {}
 
 
@@ -15,18 +15,37 @@ def send_message(chat_id, text, reply_markup=None):
 
     data = {
         "chat_id": chat_id,
-        "text": text,
+        "text": text
     }
 
     if reply_markup:
         data["reply_markup"] = reply_markup
 
-    requests.post(url, json=data, timeout=10)
+    try:
+        requests.post(url, json=data, timeout=15)
+    except Exception:
+        pass
+
+
+def search_phone(name):
+    url = "https://api.mobileapi.dev/devices/search/"
+
+    params = {
+        "key": MOBILE_API_KEY,
+        "name": name
+    }
+
+    response = requests.get(url, params=params, timeout=15)
+
+    if response.status_code != 200:
+        return None
+
+    return response.json()
 
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Algeria Price Tracker Bot is running!"
+    return "SOK DZAYR Phone Bot is running!"
 
 
 @app.route("/telegram/webhook", methods=["POST"])
@@ -41,13 +60,12 @@ def telegram_webhook():
     if not chat_id:
         return "OK"
 
-    # بدء البوت
     if text == "/start":
         keyboard = {
             "keyboard": [
-                ["🔎 ابحث عن منتج"],
+                ["🔎 ابحث عن هاتف"],
                 ["🔔 إنشاء تنبيه سعر"],
-                ["📋 منتجاتي المتابعة"],
+                ["📋 هواتفي المتابعة"],
                 ["ℹ️ المساعدة"]
             ],
             "resize_keyboard": True
@@ -57,41 +75,43 @@ def telegram_webhook():
 
         send_message(
             chat_id,
-            "🇩🇿 مرحبًا بك في بوت متابعة الأسعار!\n\n"
-            "يمكنك البحث عن منتج وإنشاء تنبيه لسعره.",
+            "🇩🇿 مرحبًا بك في SOK DZAYR 📱\n\n"
+            "ابحث عن هاتف لمعرفة مواصفاته.",
             keyboard
         )
 
-    elif text == "🔎 ابحث عن منتج":
+    elif text == "🔎 ابحث عن هاتف":
         user_state[chat_id] = {"step": "search"}
 
         send_message(
             chat_id,
-            "🔎 اكتب اسم المنتج الذي تبحث عنه.\n\n"
-            "مثال: iPhone 15"
+            "🔎 اكتب اسم الهاتف.\n\n"
+            "مثال:\n"
+            "iPhone 15 Pro\n"
+            "Samsung Galaxy S24 Ultra"
         )
 
     elif text == "🔔 إنشاء تنبيه سعر":
-        user_state[chat_id] = {"step": "product_for_alert"}
+        user_state[chat_id] = {"step": "alert_product"}
 
         send_message(
             chat_id,
-            "📦 اكتب اسم المنتج الذي تريد متابعة سعره."
+            "📱 اكتب اسم الهاتف الذي تريد متابعة سعره."
         )
 
-    elif text == "📋 منتجاتي المتابعة":
+    elif text == "📋 هواتفي المتابعة":
         send_message(
             chat_id,
-            "📋 لا توجد منتجات محفوظة للمتابعة حتى الآن."
+            "📋 لا توجد هواتف محفوظة حاليًا."
         )
 
     elif text == "ℹ️ المساعدة":
         send_message(
             chat_id,
             "ℹ️ طريقة الاستخدام:\n\n"
-            "1️⃣ اضغط 🔎 ابحث عن منتج\n"
-            "2️⃣ اكتب اسم المنتج\n"
-            "3️⃣ يمكنك لاحقًا إنشاء تنبيه للسعر\n\n"
+            "🔎 ابحث عن هاتف\n"
+            "اكتب اسم الهاتف وسأبحث عن مواصفاته.\n\n"
+            "🔔 يمكنك لاحقًا إنشاء تنبيه للسعر.\n\n"
             "🇩🇿 الأسعار ستكون بالدينار الجزائري."
         )
 
@@ -100,39 +120,81 @@ def telegram_webhook():
         step = state.get("step")
 
         if step == "search":
-            product = text
+            phone_name = text
 
-            user_state[chat_id] = {
-                "step": None,
-                "product": product
-            }
+            try:
+                result = search_phone(phone_name)
 
-            send_message(
-                chat_id,
-                f"🔎 تم تسجيل بحثك عن:\n\n📦 {product}\n\n"
-                "🚧 ميزة جلب الأسعار من المتاجر ستتم إضافتها في المرحلة القادمة."
-            )
+                if not result:
+                    send_message(
+                        chat_id,
+                        "❌ لم أستطع الوصول إلى خدمة البحث."
+                    )
+                    return "OK"
 
-        elif step == "product_for_alert":
-            product = text
+                devices = result.get("data", [])
 
+                if not devices:
+                    send_message(
+                        chat_id,
+                        f"❌ لم أجد هاتفًا مطابقًا لـ:\n\n{phone_name}"
+                    )
+                    return "OK"
+
+                device = devices[0]
+
+                name = device.get("name", phone_name)
+                manufacturer = device.get("manufacturer", "غير معروف")
+                match = device.get("match_certainty", "")
+                match_type = device.get("match_type", "")
+
+                message_text = (
+                    f"📱 {name}\n\n"
+                    f"🏢 الشركة: {manufacturer}\n"
+                )
+
+                if match:
+                    message_text += f"🎯 دقة المطابقة: {match}%\n"
+
+                if match_type:
+                    message_text += f"🔎 نوع المطابقة: {match_type}\n"
+
+                message_text += (
+                    "\n📋 تم العثور على الهاتف بنجاح.\n"
+                    "سنضيف عرض المواصفات التفصيلية في الخطوة التالية."
+                )
+
+                send_message(chat_id, message_text)
+
+            except Exception:
+                send_message(
+                    chat_id,
+                    "❌ حدث خطأ أثناء البحث. حاول مرة أخرى."
+                )
+
+            user_state[chat_id] = {"step": None}
+
+        elif step == "alert_product":
             user_state[chat_id] = {
                 "step": "target_price",
-                "product": product
+                "product": text
             }
 
             send_message(
                 chat_id,
-                f"📦 المنتج: {product}\n\n"
-                "💰 الآن اكتب السعر الذي تريد أن يتم تنبيهك عند الوصول إليه بالدينار الجزائري.\n\n"
-                "مثال: 100000"
+                f"📱 الهاتف: {text}\n\n"
+                "💰 اكتب السعر الذي تريد التنبيه عنده بالدينار الجزائري.\n\n"
+                "مثال:\n"
+                "100000"
             )
 
         elif step == "target_price":
             try:
-                price = float(text.replace(" ", "").replace(",", "."))
+                price = float(
+                    text.replace(" ", "").replace(",", ".")
+                )
 
-                product = state.get("product", "منتج")
+                product = state.get("product", "الهاتف")
 
                 user_state[chat_id] = {
                     "step": None,
@@ -143,15 +205,16 @@ def telegram_webhook():
                 send_message(
                     chat_id,
                     f"✅ تم إنشاء التنبيه!\n\n"
-                    f"📦 المنتج: {product}\n"
-                    f"🎯 السعر المطلوب: {price:,.0f} دج\n\n"
-                    "🔔 سنستخدم مصدر أسعار مدعومًا لإرسال التنبيه عند توفر السعر المناسب."
+                    f"📱 الهاتف: {product}\n"
+                    f"🎯 السعر: {price:,.0f} دج\n\n"
+                    "🔔 سنربط التنبيه بمصدر الأسعار في الخطوة القادمة."
                 )
 
             except ValueError:
                 send_message(
                     chat_id,
-                    "❌ اكتب السعر بالأرقام فقط.\n\nمثال: 100000"
+                    "❌ أدخل السعر بالأرقام فقط.\n\n"
+                    "مثال: 100000"
                 )
 
         else:

@@ -1,4 +1,3 @@
-
 import os
 import base64
 import requests
@@ -9,17 +8,16 @@ app = Flask(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MOBILE_API_KEY = os.environ.get("MOBILE_API_KEY")
 
-user_state = {}
-
 BASE_URL = "https://api.mobileapi.dev"
 
+user_state = {}
 
-# =====================================
-# Telegram functions
-# =====================================
+
+# ==============================
+# Telegram
+# ==============================
 
 def send_message(chat_id, text, keyboard=None):
-
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
     data = {
@@ -31,95 +29,65 @@ def send_message(chat_id, text, keyboard=None):
         data["reply_markup"] = keyboard
 
     try:
-        response = requests.post(
-            url,
-            json=data,
-            timeout=20
-        )
-
-        print(
-            "Telegram message:",
-            response.status_code
-        )
-
-    except Exception as error:
-        print(
-            "Telegram error:",
-            error
-        )
-
-
-def send_photo_url(chat_id, photo_url, caption):
-
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-
-    data = {
-        "chat_id": chat_id,
-        "photo": photo_url,
-        "caption": caption
-    }
-
-    try:
-
-        response = requests.post(
-            url,
-            json=data,
-            timeout=30
-        )
-
-        print(
-            "Telegram photo URL:",
-            response.status_code
-        )
-
-    except Exception as error:
-
-        print(
-            "Photo URL error:",
-            error
-        )
+        r = requests.post(url, json=data, timeout=20)
+        print("Telegram:", r.status_code, r.text[:500])
+    except Exception as e:
+        print("Telegram error:", e)
 
 
 def send_photo_bytes(chat_id, image_bytes, caption):
-
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
     try:
-
-        response = requests.post(
+        r = requests.post(
             url,
             data={
                 "chat_id": str(chat_id),
                 "caption": caption
             },
             files={
-                "photo": (
-                    "phone.jpg",
-                    image_bytes
-                )
+                "photo": ("phone.jpg", image_bytes)
             },
             timeout=30
         )
 
-        print(
-            "Telegram photo bytes:",
-            response.status_code
+        print("Telegram photo:", r.status_code, r.text[:500])
+
+        return r.ok
+
+    except Exception as e:
+        print("Photo error:", e)
+        return False
+
+
+def send_photo_url(chat_id, photo_url, caption):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+
+    try:
+        r = requests.post(
+            url,
+            json={
+                "chat_id": chat_id,
+                "photo": photo_url,
+                "caption": caption
+            },
+            timeout=30
         )
 
-    except Exception as error:
+        print("Telegram photo URL:", r.status_code, r.text[:500])
 
-        print(
-            "Photo upload error:",
-            error
-        )
+        return r.ok
+
+    except Exception as e:
+        print("Photo URL error:", e)
+        return False
 
 
-# =====================================
+# ==============================
 # MobileAPI
-# =====================================
+# ==============================
 
 def mobileapi_get(path, params=None):
-
     if params is None:
         params = {}
 
@@ -128,123 +96,80 @@ def mobileapi_get(path, params=None):
     url = BASE_URL + path
 
     try:
-
-        response = requests.get(
+        r = requests.get(
             url,
             params=params,
-            timeout=25
+            timeout=30
         )
 
-        print(
-            "MobileAPI request:",
-            path,
-            response.status_code
-        )
+        print("MobileAPI:", r.status_code, path)
+        print("Response:", r.text[:2000])
 
-        print(
-            "MobileAPI response:",
-            response.text[:1000]
-        )
-
-        if response.status_code != 200:
+        if r.status_code != 200:
             return None
 
-        return response.json()
+        return r.json()
 
-    except Exception as error:
-
-        print(
-            "MobileAPI error:",
-            error
-        )
-
+    except Exception as e:
+        print("MobileAPI error:", e)
         return None
 
 
-def search_phones(phone_name):
-
+def search_phones(name):
     return mobileapi_get(
         "/devices/search/",
         {
-            "name": phone_name,
+            "name": name,
             "page": 1
         }
     )
 
 
-def get_phone(device_id):
-
-    return mobileapi_get(
-        f"/devices/{device_id}/"
-    )
-
-
 def get_phone_images(device_id):
-
     return mobileapi_get(
         f"/devices/{device_id}/images/"
     )
 
 
-def get_phone_misc(device_id):
-
-    return mobileapi_get(
-        f"/devices/{device_id}/misc/"
-    )
-
-
-# =====================================
+# ==============================
 # Helpers
-# =====================================
+# ==============================
 
 def get_value(data, keys, default="غير متوفر"):
-
     if not isinstance(data, dict):
         return default
 
     for key in keys:
-
         value = data.get(key)
 
-        if value not in (
-            None,
-            "",
-            []
-        ):
+        if value not in (None, "", [], {}):
             return value
 
     return default
 
 
-def decode_image(value):
-
+def decode_base64_image(value):
     if not value:
         return None
 
     try:
+        if isinstance(value, str):
+            if "," in value:
+                value = value.split(",", 1)[1]
 
-        if "," in value:
+            return base64.b64decode(value)
 
-            value = value.split(
-                ",",
-                1
-            )[1]
+    except Exception as e:
+        print("Base64 error:", e)
 
-        return base64.b64decode(
-            value
-        )
-
-    except Exception as error:
-
-        print(
-            "Image decode error:",
-            error
-        )
-
-        return None
+    return None
 
 
-def build_phone_info(device, misc):
+# ==============================
+# Build information
+# ==============================
+
+def build_phone_info(device):
 
     name = get_value(
         device,
@@ -273,7 +198,8 @@ def build_phone_info(device, misc):
         device,
         [
             "screen_resolution",
-            "display"
+            "display",
+            "screen"
         ]
     )
 
@@ -293,7 +219,7 @@ def build_phone_info(device, misc):
         ]
     )
 
-    hardware = get_value(
+    processor = get_value(
         device,
         [
             "hardware",
@@ -310,6 +236,14 @@ def build_phone_info(device, misc):
         ]
     )
 
+    ram = get_value(
+        device,
+        [
+            "ram",
+            "memory"
+        ]
+    )
+
     release = get_value(
         device,
         [
@@ -319,7 +253,7 @@ def build_phone_info(device, misc):
     )
 
     price = get_value(
-        misc,
+        device,
         [
             "price",
             "price_usd"
@@ -334,136 +268,192 @@ def build_phone_info(device, misc):
         f"📺 الشاشة: {screen}\n"
         f"📸 الكاميرا: {camera}\n"
         f"🔋 البطارية: {battery}\n"
-        f"⚙️ المعالج: {hardware}\n"
+        f"⚙️ المعالج: {processor}\n"
+        f"🧠 RAM: {ram}\n"
         f"💾 التخزين: {storage}\n"
         f"📅 الإصدار: {release}\n\n"
-        f"🇩🇿 سعر الجزائر: سنربطه لاحقًا بمصدر جزائري."
+        f"🇩🇿 سعر الجزائر: سيتم ربطه بمصدر أسعار جزائري."
     )
 
 
-# =====================================
-# Show phone
-# =====================================
+# ==============================
+# Find image
+# ==============================
 
-def show_phone(chat_id, device_id):
+def send_phone_image(chat_id, device, caption):
+
+    # 1 - Base64 داخل نتيجة البحث
+    base64_keys = [
+        "main_image_b64",
+        "image_b64",
+        "thumbnail_b64"
+    ]
+
+    for key in base64_keys:
+
+        value = device.get(key)
+
+        image = decode_base64_image(value)
+
+        if image:
+            print("Image found in:", key)
+
+            if send_photo_bytes(
+                chat_id,
+                image,
+                caption
+            ):
+                return True
+
+
+    # 2 - رابط الصورة داخل نتيجة البحث
+    url_keys = [
+        "main_image",
+        "main_image_url",
+        "image_url",
+        "thumbnail_url"
+    ]
+
+    for key in url_keys:
+
+        value = device.get(key)
+
+        if isinstance(value, str) and value.startswith("http"):
+
+            print("Image URL found:", key)
+
+            if send_photo_url(
+                chat_id,
+                value,
+                caption
+            ):
+                return True
+
+
+    # 3 - طلب صور الهاتف
+    device_id = device.get("id")
+
+    if device_id:
+
+        images = get_phone_images(device_id)
+
+        print("Images data:", images)
+
+        if isinstance(images, dict):
+
+            image_list = images.get(
+                "images",
+                []
+            )
+
+        elif isinstance(images, list):
+
+            image_list = images
+
+        else:
+
+            image_list = []
+
+
+        for image_data in image_list:
+
+            if not isinstance(image_data, dict):
+                continue
+
+
+            # Base64
+            for key in [
+                "image_b64",
+                "main_image_b64",
+                "thumbnail_b64"
+            ]:
+
+                value = image_data.get(key)
+
+                image = decode_base64_image(value)
+
+                if image:
+
+                    if send_photo_bytes(
+                        chat_id,
+                        image,
+                        caption
+                    ):
+                        return True
+
+
+            # URL
+            for key in [
+                "image_url",
+                "url",
+                "thumbnail_url"
+            ]:
+
+                value = image_data.get(key)
+
+                if isinstance(value, str) and value.startswith("http"):
+
+                    if send_photo_url(
+                        chat_id,
+                        value,
+                        caption
+                    ):
+                        return True
+
+
+    return False
+
+
+# ==============================
+# Show phone
+# ==============================
+
+def show_phone(chat_id, device):
 
     send_message(
         chat_id,
-        "⏳ جاري جلب معلومات الهاتف..."
+        "⏳ جاري تجهيز معلومات الهاتف..."
     )
 
-    device = get_phone(
-        device_id
-    )
-
-    if not device:
+    if not isinstance(device, dict):
 
         send_message(
             chat_id,
-            "❌ لم أتمكن من الحصول على معلومات الهاتف."
+            "❌ بيانات الهاتف غير صحيحة."
         )
 
         return
 
-    misc = get_phone_misc(
-        device_id
-    )
 
-    if misc is None:
-        misc = {}
+    info = build_phone_info(device)
 
-    info = build_phone_info(
-        device,
-        misc
-    )
-
-    # محاولة الحصول على الصورة الرئيسية
-
-    image_b64 = device.get(
-        "main_image_b64"
-    )
-
-    if image_b64:
-
-        image_bytes = decode_image(
-            image_b64
-        )
-
-        if image_bytes:
-
-            send_photo_bytes(
-                chat_id,
-                image_bytes,
-                info
-            )
-
-            return
-
-    # محاولة الحصول على الصور من endpoint
-
-    images = get_phone_images(
-        device_id
-    )
-
-    if images:
-
-        if isinstance(images, list):
-
-            first = images[0]
-
-            if isinstance(first, dict):
-
-                image_b64 = first.get(
-                    "image_b64"
-                )
-
-                image_url = first.get(
-                    "image_url"
-                )
-
-                if image_b64:
-
-                    image_bytes = decode_image(
-                        image_b64
-                    )
-
-                    if image_bytes:
-
-                        send_photo_bytes(
-                            chat_id,
-                            image_bytes,
-                            info
-                        )
-
-                        return
-
-                if image_url:
-
-                    send_photo_url(
-                        chat_id,
-                        image_url,
-                        info
-                    )
-
-                    return
-
-    # إذا لم نجد صورة
-
-    send_message(
+    image_sent = send_phone_image(
         chat_id,
+        device,
         info
     )
 
+    if not image_sent:
 
-# =====================================
-# Flask
-# =====================================
+        send_message(
+            chat_id,
+            info
+        )
+
+
+# ==============================
+# Home
+# ==============================
 
 @app.route("/", methods=["GET"])
 def home():
 
     return "SOK DZAYR is running!"
 
+
+# ==============================
+# Telegram webhook
+# ==============================
 
 @app.route("/telegram/webhook", methods=["POST"])
 def telegram_webhook():
@@ -491,14 +481,14 @@ def telegram_webhook():
         ""
     ).strip()
 
-    if not chat_id:
 
+    if not chat_id:
         return "OK"
 
 
-    # =========================
-    # Start
-    # =========================
+    # ==========================
+    # START
+    # ==========================
 
     if text == "/start":
 
@@ -524,9 +514,9 @@ def telegram_webhook():
         return "OK"
 
 
-    # =========================
-    # Search button
-    # =========================
+    # ==========================
+    # SEARCH
+    # ==========================
 
     if text == "🔎 ابحث عن هاتف":
 
@@ -545,9 +535,9 @@ def telegram_webhook():
         return "OK"
 
 
-    # =========================
-    # Help
-    # =========================
+    # ==========================
+    # HELP
+    # ==========================
 
     if text == "ℹ️ المساعدة":
 
@@ -556,16 +546,11 @@ def telegram_webhook():
             "ℹ️ طريقة الاستخدام:\n\n"
             "1️⃣ اضغط ابحث عن هاتف\n"
             "2️⃣ اكتب اسم الهاتف\n"
-            "3️⃣ ستظهر النتائج\n"
-            "4️⃣ اكتب رقم الهاتف من القائمة"
+            "3️⃣ اختر رقم الهاتف"
         )
 
         return "OK"
 
-
-    # =========================
-    # Current state
-    # =========================
 
     state = user_state.get(
         chat_id,
@@ -577,15 +562,13 @@ def telegram_webhook():
     )
 
 
-    # =========================
-    # Search phone
-    # =========================
+    # ==========================
+    # SEARCH PHONE
+    # ==========================
 
     if step == "search":
 
-        result = search_phones(
-            text
-        )
+        result = search_phones(text)
 
         if not result:
 
@@ -595,6 +578,7 @@ def telegram_webhook():
             )
 
             return "OK"
+
 
         devices = result.get(
             "devices",
@@ -613,14 +597,17 @@ def telegram_webhook():
 
         devices = devices[:10]
 
+
         user_state[chat_id] = {
             "step": "choose",
             "devices": devices
         }
 
+
         result_text = (
             f"🔎 نتائج البحث عن:\n{text}\n\n"
         )
+
 
         for index, device in enumerate(
             devices,
@@ -641,9 +628,11 @@ def telegram_webhook():
                 f"{index}. 📱 {name} {brand}\n"
             )
 
+
         result_text += (
-            "\n✍️ اكتب رقم الهاتف الذي تريد اختياره."
+            "\n✍️ اكتب رقم الهاتف."
         )
+
 
         send_message(
             chat_id,
@@ -653,55 +642,15 @@ def telegram_webhook():
         return "OK"
 
 
-    # =========================
-    # Choose number
-    # =========================
+    # ==========================
+    # CHOOSE PHONE
+    # ==========================
 
     if step == "choose":
 
         try:
 
             number = int(text)
-
-            devices = state.get(
-                "devices",
-                []
-            )
-
-            if number < 1 or number > len(devices):
-
-                send_message(
-                    chat_id,
-                    "❌ اختر رقمًا موجودًا في القائمة."
-                )
-
-                return "OK"
-
-            device = devices[
-                number - 1
-            ]
-
-            device_id = device.get(
-                "id"
-            )
-
-            if not device_id:
-
-                send_message(
-                    chat_id,
-                    "❌ لم أجد معرف الهاتف."
-                )
-
-                return "OK"
-
-            user_state[chat_id] = {
-                "step": None
-            }
-
-            show_phone(
-                chat_id,
-                device_id
-            )
 
         except ValueError:
 
@@ -710,12 +659,47 @@ def telegram_webhook():
                 "❌ اكتب رقمًا فقط، مثل: 1"
             )
 
+            return "OK"
+
+
+        devices = state.get(
+            "devices",
+            []
+        )
+
+
+        if number < 1 or number > len(devices):
+
+            send_message(
+                chat_id,
+                "❌ اختر رقمًا موجودًا في القائمة."
+            )
+
+            return "OK"
+
+
+        device = devices[
+            number - 1
+        ]
+
+
+        user_state[chat_id] = {
+            "step": None
+        }
+
+
+        show_phone(
+            chat_id,
+            device
+        )
+
+
         return "OK"
 
 
-    # =========================
-    # Default
-    # =========================
+    # ==========================
+    # DEFAULT
+    # ==========================
 
     send_message(
         chat_id,
@@ -725,9 +709,9 @@ def telegram_webhook():
     return "OK"
 
 
-# =====================================
+# ==============================
 # Run
-# =====================================
+# ==============================
 
 if __name__ == "__main__":
 

@@ -1,32 +1,279 @@
 import os
+import random
 import requests
 from flask import Flask, request
 
 app = Flask(__name__)
 
-# =====================================
-# الإعدادات
-# =====================================
+# ==============================
+# إعدادات Telegram
+# ==============================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-MOBILE_API_KEY = os.environ.get("MOBILE_API_KEY")
 
-BASE_URL = "https://api.mobileapi.dev"
-
-user_state = {}
+if not BOT_TOKEN:
+    print("⚠️ WARNING: BOT_TOKEN غير موجود في Environment Variables")
 
 
-# =====================================
-# إرسال رسالة Telegram
-# =====================================
+# ==============================
+# تخزين مؤقت للطلاب
+# ==============================
+
+users = {}
+
+
+# ==============================
+# الأسئلة
+# يمكنك إضافة أسئلة أخرى هنا
+# ==============================
+
+QUIZES = {
+
+    "الرياضيات": [
+        {
+            "question": "ما هو ناتج 5 × 6 ؟",
+            "options": ["20", "25", "30", "35"],
+            "answer": 2
+        },
+        {
+            "question": "ما هو الجذر التربيعي للعدد 81 ؟",
+            "options": ["7", "8", "9", "10"],
+            "answer": 2
+        },
+        {
+            "question": "إذا كان x = 5، فما قيمة 2x + 3 ؟",
+            "options": ["10", "11", "13", "15"],
+            "answer": 2
+        },
+        {
+            "question": "ما هو مشتق x² ؟",
+            "options": ["x", "2x", "x²", "2"],
+            "answer": 1
+        },
+        {
+            "question": "ما قيمة 10² ؟",
+            "options": ["20", "50", "100", "1000"],
+            "answer": 2
+        }
+    ],
+
+    "الفيزياء": [
+        {
+            "question": "ما هي وحدة قياس القوة؟",
+            "options": ["جول", "واط", "نيوتن", "باسكال"],
+            "answer": 2
+        },
+        {
+            "question": "ما هي سرعة الضوء تقريبًا؟",
+            "options": [
+                "3000 km/s",
+                "30000 km/s",
+                "300000 km/s",
+                "3000000 km/s"
+            ],
+            "answer": 2
+        },
+        {
+            "question": "ما هي وحدة قياس الطاقة؟",
+            "options": ["نيوتن", "جول", "أمبير", "فولت"],
+            "answer": 1
+        },
+        {
+            "question": "ما الجهاز المستخدم لقياس شدة التيار الكهربائي؟",
+            "options": [
+                "الفولتميتر",
+                "الأميتر",
+                "البارومتر",
+                "الترمومتر"
+            ],
+            "answer": 1
+        }
+    ],
+
+    "العلوم": [
+        {
+            "question": "ما هي الوحدة الأساسية للحياة؟",
+            "options": ["النسيج", "العضو", "الخلية", "الجزيء"],
+            "answer": 2
+        },
+        {
+            "question": "أين تحدث عملية البناء الضوئي؟",
+            "options": [
+                "النواة",
+                "الميتوكوندريا",
+                "البلاستيدات الخضراء",
+                "الريبوسومات"
+            ],
+            "answer": 2
+        },
+        {
+            "question": "ما الغاز الذي تمتصه النباتات في البناء الضوئي؟",
+            "options": [
+                "الأكسجين",
+                "النيتروجين",
+                "ثاني أكسيد الكربون",
+                "الهيدروجين"
+            ],
+            "answer": 2
+        }
+    ],
+
+    "التاريخ": [
+        {
+            "question": "متى اندلعت الثورة التحريرية الجزائرية؟",
+            "options": [
+                "1952",
+                "1954",
+                "1956",
+                "1962"
+            ],
+            "answer": 1
+        },
+        {
+            "question": "متى استقلت الجزائر؟",
+            "options": [
+                "1954",
+                "1960",
+                "1962",
+                "1963"
+            ],
+            "answer": 2
+        },
+        {
+            "question": "ما هو تاريخ اندلاع الثورة الجزائرية؟",
+            "options": [
+                "1 نوفمبر 1954",
+                "5 يوليو 1962",
+                "19 مارس 1962",
+                "8 ماي 1945"
+            ],
+            "answer": 0
+        }
+    ],
+
+    "الجغرافيا": [
+        {
+            "question": "ما هي أكبر قارة في العالم من حيث المساحة؟",
+            "options": [
+                "إفريقيا",
+                "أوروبا",
+                "آسيا",
+                "أمريكا الجنوبية"
+            ],
+            "answer": 2
+        },
+        {
+            "question": "ما هو أكبر محيط في العالم؟",
+            "options": [
+                "المحيط الأطلسي",
+                "المحيط الهندي",
+                "المحيط الهادئ",
+                "المحيط المتجمد"
+            ],
+            "answer": 2
+        }
+    ],
+
+    "اللغة العربية": [
+        {
+            "question": "ما هو جمع كلمة «كتاب»؟",
+            "options": [
+                "كاتب",
+                "كتابات",
+                "كتب",
+                "مكتبة"
+            ],
+            "answer": 2
+        },
+        {
+            "question": "ما نوع كلمة «جميل» في الجملة: «منظر جميل»؟",
+            "options": [
+                "فعل",
+                "اسم",
+                "صفة",
+                "حرف"
+            ],
+            "answer": 2
+        }
+    ],
+
+    "الفرنسية": [
+        {
+            "question": "Quel est le pluriel de « livre » ?",
+            "options": [
+                "livres",
+                "livre",
+                "livreses",
+                "livrez"
+            ],
+            "answer": 0
+        },
+        {
+            "question": "Quel est le contraire de « grand » ?",
+            "options": [
+                "fort",
+                "petit",
+                "long",
+                "haut"
+            ],
+            "answer": 1
+        }
+    ],
+
+    "الإنجليزية": [
+        {
+            "question": "What is the past tense of 'go'?",
+            "options": [
+                "goed",
+                "gone",
+                "went",
+                "going"
+            ],
+            "answer": 2
+        },
+        {
+            "question": "Choose the correct sentence:",
+            "options": [
+                "He go to school.",
+                "He goes to school.",
+                "He going school.",
+                "He gone school."
+            ],
+            "answer": 1
+        }
+    ]
+}
+
+
+# ==============================
+# Telegram API
+# ==============================
+
+def telegram_request(method, data):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
+
+    try:
+        response = requests.post(
+            url,
+            json=data,
+            timeout=20
+        )
+
+        print(
+            "Telegram:",
+            method,
+            response.status_code,
+            response.text[:500]
+        )
+
+        return response.json()
+
+    except Exception as error:
+        print("Telegram Error:", error)
+        return None
+
 
 def send_message(chat_id, text, keyboard=None):
-
-    if not BOT_TOKEN:
-        print("ERROR: BOT_TOKEN غير موجود", flush=True)
-        return
-
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
     data = {
         "chat_id": chat_id,
@@ -36,586 +283,583 @@ def send_message(chat_id, text, keyboard=None):
     if keyboard:
         data["reply_markup"] = keyboard
 
-    try:
-        response = requests.post(
-            url,
-            json=data,
-            timeout=30
+    telegram_request(
+        "sendMessage",
+        data
+    )
+
+
+def edit_message(chat_id, message_id, text, keyboard=None):
+
+    data = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text
+    }
+
+    if keyboard:
+        data["reply_markup"] = keyboard
+
+    telegram_request(
+        "editMessageText",
+        data
+    )
+
+
+# ==============================
+# القائمة الرئيسية
+# ==============================
+
+def main_menu():
+
+    return {
+        "keyboard": [
+            ["📝 الاختبارات"],
+            ["📊 نتيجتي"],
+            ["🎓 تغيير الشعبة"],
+            ["ℹ️ المساعدة"]
+        ],
+        "resize_keyboard": True
+    }
+
+
+# ==============================
+# قائمة المواد
+# ==============================
+
+def subjects_menu():
+
+    return {
+        "keyboard": [
+            ["📐 الرياضيات", "⚡ الفيزياء"],
+            ["🧬 العلوم", "🌍 التاريخ"],
+            ["🗺️ الجغرافيا", "📖 اللغة العربية"],
+            ["🇫🇷 الفرنسية", "🇬🇧 الإنجليزية"],
+            ["🔙 رجوع"]
+        ],
+        "resize_keyboard": True
+    }
+
+
+# ==============================
+# تحويل اسم المادة
+# ==============================
+
+SUBJECT_NAMES = {
+    "📐 الرياضيات": "الرياضيات",
+    "⚡ الفيزياء": "الفيزياء",
+    "🧬 العلوم": "العلوم",
+    "🌍 التاريخ": "التاريخ",
+    "🗺️ الجغرافيا": "الجغرافيا",
+    "📖 اللغة العربية": "اللغة العربية",
+    "🇫🇷 الفرنسية": "الفرنسية",
+    "🇬🇧 الإنجليزية": "الإنجليزية"
+}
+
+
+# ==============================
+# بداية اختبار
+# ==============================
+
+def start_quiz(chat_id, subject):
+
+    questions = QUIZES.get(subject, [])
+
+    if not questions:
+
+        send_message(
+            chat_id,
+            "❌ لا توجد أسئلة لهذه المادة حاليًا."
         )
 
-        print(
-            "Telegram status:",
-            response.status_code,
-            flush=True
+        return
+
+    questions = questions.copy()
+
+    random.shuffle(questions)
+
+    users[chat_id] = {
+        "subject": subject,
+        "questions": questions,
+        "current": 0,
+        "score": 0,
+        "answered": False
+    }
+
+    send_question(chat_id)
+
+
+# ==============================
+# إرسال السؤال
+# ==============================
+
+def send_question(chat_id):
+
+    user = users.get(chat_id)
+
+    if not user:
+        return
+
+    current = user["current"]
+    questions = user["questions"]
+
+    if current >= len(questions):
+
+        finish_quiz(chat_id)
+
+        return
+
+    question = questions[current]
+
+    options = question["options"]
+
+    keyboard = []
+
+    for index, option in enumerate(options):
+
+        keyboard.append(
+            [
+                {
+                    "text": f"{chr(65 + index)} - {option}",
+                    "callback_data": f"answer_{index}"
+                }
+            ]
         )
 
-        if response.status_code != 200:
-            print(
-                "Telegram response:",
-                response.text[:500],
-                flush=True
-            )
+    reply_markup = {
+        "inline_keyboard": keyboard
+    }
 
-    except Exception as error:
-        print(
-            "Telegram error:",
-            repr(error),
-            flush=True
-        )
+    text = (
+        f"📝 اختبار {user['subject']}\n\n"
+        f"السؤال {current + 1} من {len(questions)}\n\n"
+        f"❓ {question['question']}\n\n"
+        "اختر الإجابة الصحيحة:"
+    )
 
-
-# =====================================
-# الاتصال بـ MobileAPI
-# =====================================
-
-def mobileapi_get(path, params=None):
-
-    if not MOBILE_API_KEY:
-        return {
-            "error": "MOBILE_API_KEY غير موجود في Render"
-        }
-
-    if params is None:
-        params = {}
-
-    # نسخة جديدة حتى لا نعدل البيانات الأصلية
-    params = dict(params)
-
-    params["key"] = MOBILE_API_KEY
-
-    url = BASE_URL + path
-
-    try:
-
-        print(
-            "MobileAPI request:",
-            url,
-            flush=True
-        )
-
-        response = requests.get(
-            url,
-            params=params,
-            timeout=30
-        )
-
-        print(
-            "MobileAPI status:",
-            response.status_code,
-            flush=True
-        )
-
-        # لا نطبع المفتاح السري
-        print(
-            "MobileAPI response:",
-            response.text[:1000],
-            flush=True
-        )
-
-        if response.status_code != 200:
-            return {
-                "error": f"HTTP {response.status_code}",
-                "details": response.text[:300]
-            }
-
-        try:
-            return response.json()
-
-        except ValueError:
-            return {
-                "error": "استجابة MobileAPI ليست JSON",
-                "details": response.text[:300]
-            }
-
-    except requests.exceptions.Timeout:
-        return {
-            "error": "انتهت مهلة الاتصال بـ MobileAPI"
-        }
-
-    except requests.exceptions.ConnectionError:
-        return {
-            "error": "تعذر الاتصال بـ MobileAPI"
-        }
-
-    except Exception as error:
-        return {
-            "error": str(error)
-        }
-
-
-# =====================================
-# البحث عن الهواتف
-# =====================================
-
-def search_phones(phone_name):
-
-    return mobileapi_get(
-        "/devices/search/",
-        {
-            "name": phone_name,
-            "page": 1
-        }
+    send_message(
+        chat_id,
+        text,
+        reply_markup
     )
 
 
-# =====================================
-# دوال مساعدة
-# =====================================
+# ==============================
+# إنهاء الاختبار
+# ==============================
 
-def get_value(data, keys, default="غير متوفر"):
+def finish_quiz(chat_id):
 
-    if not isinstance(data, dict):
-        return default
+    user = users.get(chat_id)
 
-    for key in keys:
+    if not user:
+        return
 
-        value = data.get(key)
+    score = user["score"]
+    total = len(user["questions"])
 
-        if value not in (
-            None,
-            "",
-            [],
-            {}
-        ):
-            return value
-
-    return default
-
-
-# =====================================
-# بناء معلومات الهاتف
-# =====================================
-
-def build_phone_info(device):
-
-    name = get_value(
-        device,
-        ["name"],
-        "هاتف غير معروف"
+    percentage = round(
+        (score / total) * 100
     )
 
-    brand = get_value(
-        device,
-        [
-            "manufacturer_name",
-            "brand_name",
-            "manufacturer"
-        ]
+    if percentage >= 80:
+        message = "🏆 ممتاز! مستوى رائع جدًا."
+    elif percentage >= 60:
+        message = "👏 جيد جدًا! استمر في المراجعة."
+    elif percentage >= 50:
+        message = "👍 نتيجة مقبولة، ويمكنك تحسينها."
+    else:
+        message = "💪 لا تستسلم، راجع الدرس وأعد الاختبار."
+
+    users[chat_id]["last_score"] = score
+    users[chat_id]["last_total"] = total
+    users[chat_id]["last_percentage"] = percentage
+
+    send_message(
+        chat_id,
+        f"🎉 انتهى الاختبار!\n\n"
+        f"📚 المادة: {user['subject']}\n"
+        f"✅ الإجابات الصحيحة: {score}\n"
+        f"❌ الإجابات الخاطئة: {total - score}\n"
+        f"📊 النتيجة: {percentage}%\n\n"
+        f"{message}\n\n"
+        "🔄 يمكنك بدء اختبار جديد من القائمة."
     )
 
-    model = get_value(
-        device,
-        [
-            "model_number",
-            "model"
-        ]
-    )
-
-    screen = get_value(
-        device,
-        [
-            "screen_resolution",
-            "display",
-            "screen"
-        ]
-    )
-
-    camera = get_value(
-        device,
-        [
-            "camera",
-            "camera_specs"
-        ]
-    )
-
-    battery = get_value(
-        device,
-        [
-            "battery_capacity",
-            "battery"
-        ]
-    )
-
-    processor = get_value(
-        device,
-        [
-            "hardware",
-            "processor",
-            "chipset"
-        ]
-    )
-
-    storage = get_value(
-        device,
-        [
-            "storage",
-            "internal_memory"
-        ]
-    )
-
-    release = get_value(
-        device,
-        [
-            "release_date",
-            "released"
-        ]
-    )
-
-    return (
-        f"📱 {name}\n\n"
-        f"🏢 الشركة: {brand}\n"
-        f"🔢 الموديل: {model}\n\n"
-        f"📺 الشاشة: {screen}\n"
-        f"📸 الكاميرا: {camera}\n"
-        f"🔋 البطارية: {battery}\n"
-        f"⚙️ المعالج: {processor}\n"
-        f"💾 التخزين: {storage}\n"
-        f"📅 الإصدار: {release}"
-    )
+    users[chat_id]["questions"] = []
+    users[chat_id]["current"] = 0
+    users[chat_id]["score"] = 0
 
 
-# =====================================
-# الصفحة الرئيسية
-# =====================================
+# ==============================
+# معالجة أزرار الاختبار
+# ==============================
 
-@app.route("/", methods=["GET"])
-def home():
+def handle_callback(callback):
 
-    return "SOK DZAYR Phone Bot is running!"
+    callback_id = callback.get("id")
 
+    data = callback.get("data", "")
 
-# =====================================
-# Telegram Webhook
-# =====================================
-
-@app.route("/telegram/webhook", methods=["POST"])
-def telegram_webhook():
-
-    data = request.get_json(silent=True) or {}
-
-    message = data.get("message", {})
+    message = callback.get("message", {})
 
     chat = message.get("chat", {})
 
     chat_id = chat.get("id")
 
-    text = message.get("text", "").strip()
+    message_id = message.get("message_id")
 
-    print(
-        "Telegram message received:",
-        text,
-        flush=True
+    # إزالة حالة الضغط من Telegram
+    telegram_request(
+        "answerCallbackQuery",
+        {
+            "callback_query_id": callback_id
+        }
     )
+
+    if not chat_id:
+        return
+
+    user = users.get(chat_id)
+
+    if not user:
+        send_message(
+            chat_id,
+            "❌ انتهى الاختبار. ابدأ اختبارًا جديدًا."
+        )
+        return
+
+    if not data.startswith("answer_"):
+        return
+
+    if user.get("answered"):
+        return
+
+    try:
+
+        selected = int(
+            data.replace(
+                "answer_",
+                ""
+            )
+        )
+
+    except ValueError:
+        return
+
+    current = user["current"]
+
+    questions = user["questions"]
+
+    if current >= len(questions):
+        return
+
+    question = questions[current]
+
+    correct = question["answer"]
+
+    user["answered"] = True
+
+    if selected == correct:
+
+        user["score"] += 1
+
+        result_text = "✅ إجابة صحيحة!"
+
+    else:
+
+        correct_text = question["options"][correct]
+
+        result_text = (
+            f"❌ إجابة خاطئة.\n\n"
+            f"✅ الإجابة الصحيحة: {correct_text}"
+        )
+
+    edit_message(
+        chat_id,
+        message_id,
+        (
+            f"{result_text}\n\n"
+            f"📊 نقاطك الحالية: {user['score']}\n\n"
+            "⏭️ اضغط «السؤال التالي» للمتابعة."
+        ),
+        {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": "➡️ السؤال التالي",
+                        "callback_data": "next_question"
+                    }
+                ]
+            ]
+        }
+    )
+
+
+# ==============================
+# السؤال التالي
+# ==============================
+
+def handle_next_question(callback):
+
+    callback_id = callback.get("id")
+
+    message = callback.get("message", {})
+
+    chat = message.get("chat", {})
+
+    chat_id = chat.get("id")
+
+    telegram_request(
+        "answerCallbackQuery",
+        {
+            "callback_query_id": callback_id
+        }
+    )
+
+    if not chat_id:
+        return
+
+    user = users.get(chat_id)
+
+    if not user:
+        return
+
+    user["current"] += 1
+    user["answered"] = False
+
+    send_question(chat_id)
+
+
+# ==============================
+# Flask
+# ==============================
+
+@app.route("/", methods=["GET"])
+def home():
+
+    return "🇩🇿 BAC DZ AI is running!"
+
+
+@app.route("/telegram/webhook", methods=["POST"])
+def telegram_webhook():
+
+    data = request.get_json(
+        silent=True
+    ) or {}
+
+    # ==========================
+    # Callback Query
+    # ==========================
+
+    callback = data.get("callback_query")
+
+    if callback:
+
+        callback_data = callback.get(
+            "data",
+            ""
+        )
+
+        if callback_data == "next_question":
+
+            handle_next_question(
+                callback
+            )
+
+        elif callback_data.startswith(
+            "answer_"
+        ):
+
+            handle_callback(
+                callback
+            )
+
+        return "OK"
+
+
+    # ==========================
+    # Message
+    # ==========================
+
+    message = data.get(
+        "message",
+        {}
+    )
+
+    chat = message.get(
+        "chat",
+        {}
+    )
+
+    chat_id = chat.get(
+        "id"
+    )
+
+    text = message.get(
+        "text",
+        ""
+    ).strip()
 
     if not chat_id:
         return "OK"
 
 
-    # =================================
+    # ==========================
     # START
-    # =================================
+    # ==========================
 
     if text == "/start":
 
-        keyboard = {
-            "keyboard": [
-                ["🔎 ابحث عن هاتف"],
-                ["ℹ️ المساعدة"]
-            ],
-            "resize_keyboard": True
-        }
-
-        user_state[chat_id] = {
-            "step": None
+        users[chat_id] = {
+            "step": "main"
         }
 
         send_message(
             chat_id,
-            "🇩🇿 مرحبًا بك في SOK DZAYR 📱\n\n"
-            "اضغط على «🔎 ابحث عن هاتف» للبحث عن هاتف.",
-            keyboard
+            "🇩🇿 مرحبًا بك في BAC DZ AI 🎓\n\n"
+            "رفيقك في التحضير للبكالوريا 📚\n\n"
+            "اختر الخدمة التي تريدها:",
+            main_menu()
         )
 
         return "OK"
 
 
-    # =================================
-    # زر البحث
-    # =================================
+    # ==========================
+    # الاختبارات
+    # ==========================
 
-    if text == "🔎 ابحث عن هاتف":
+    if text == "📝 الاختبارات":
 
-        user_state[chat_id] = {
-            "step": "search"
+        users[chat_id] = {
+            "step": "subjects"
         }
 
         send_message(
             chat_id,
-            "🔎 اكتب اسم الهاتف الذي تريد البحث عنه.\n\n"
-            "مثال:\n"
-            "iPhone 15\n"
-            "Samsung Galaxy S24"
+            "📚 اختر المادة التي تريد اختبار نفسك فيها:",
+            subjects_menu()
         )
 
         return "OK"
 
 
-    # =================================
+    # ==========================
+    # اختيار المادة
+    # ==========================
+
+    if text in SUBJECT_NAMES:
+
+        subject = SUBJECT_NAMES[text]
+
+        start_quiz(
+            chat_id,
+            subject
+        )
+
+        return "OK"
+
+
+    # ==========================
+    # رجوع
+    # ==========================
+
+    if text == "🔙 رجوع":
+
+        send_message(
+            chat_id,
+            "🏠 القائمة الرئيسية:",
+            main_menu()
+        )
+
+        return "OK"
+
+
+    # ==========================
+    # النتيجة
+    # ==========================
+
+    if text == "📊 نتيجتي":
+
+        user = users.get(
+            chat_id,
+            {}
+        )
+
+        if "last_score" not in user:
+
+            send_message(
+                chat_id,
+                "📊 لا توجد نتيجة بعد.\n\n"
+                "ابدأ اختبارًا أولًا من 📝 الاختبارات."
+            )
+
+        else:
+
+            send_message(
+                chat_id,
+                f"📊 آخر نتيجة لك:\n\n"
+                f"✅ الصحيح: {user['last_score']}\n"
+                f"❌ الخطأ: "
+                f"{user['last_total'] - user['last_score']}\n"
+                f"🏆 النتيجة: "
+                f"{user['last_percentage']}%"
+            )
+
+        return "OK"
+
+
+    # ==========================
+    # تغيير الشعبة
+    # ==========================
+
+    if text == "🎓 تغيير الشعبة":
+
+        send_message(
+            chat_id,
+            "🎓 سيتم إضافة اختيار الشعبة في المرحلة القادمة."
+        )
+
+        return "OK"
+
+
+    # ==========================
     # المساعدة
-    # =================================
+    # ==========================
 
     if text == "ℹ️ المساعدة":
 
         send_message(
             chat_id,
-            "ℹ️ طريقة الاستخدام:\n\n"
-            "1️⃣ اضغط «🔎 ابحث عن هاتف»\n"
-            "2️⃣ اكتب اسم الهاتف\n"
-            "3️⃣ اختر رقم الهاتف من النتائج\n"
-            "4️⃣ ستظهر معلومات الهاتف"
+            "ℹ️ BAC DZ AI\n\n"
+            "📝 الاختبارات:\n"
+            "اختر المادة وأجب عن الأسئلة.\n\n"
+            "📊 نتيجتي:\n"
+            "تعرف على آخر نتيجة لك.\n\n"
+            "🎓 تغيير الشعبة:\n"
+            "سيتم تطويرها لاحقًا.\n\n"
+            "🚀 سيتم إضافة خدمات أخرى في الإصدارات القادمة."
         )
 
         return "OK"
 
 
-    # =================================
-    # حالة المستخدم
-    # =================================
-
-    state = user_state.get(
-        chat_id,
-        {}
-    )
-
-    step = state.get("step")
-
-
-    # =================================
-    # البحث
-    # =================================
-
-    if step == "search":
-
-        send_message(
-            chat_id,
-            "⏳ جاري البحث..."
-        )
-
-        result = search_phones(text)
-
-
-        # فحص الأخطاء
-        if result is None:
-
-            send_message(
-                chat_id,
-                "❌ لم تصل أي استجابة من MobileAPI."
-            )
-
-            return "OK"
-
-
-        if not isinstance(result, dict):
-
-            send_message(
-                chat_id,
-                "❌ استجابة غير صحيحة من MobileAPI."
-            )
-
-            return "OK"
-
-
-        if result.get("error"):
-
-            error_text = result.get(
-                "error",
-                "خطأ غير معروف"
-            )
-
-            send_message(
-                chat_id,
-                f"❌ خطأ أثناء الاتصال بـ MobileAPI:\n\n"
-                f"{error_text}"
-            )
-
-            return "OK"
-
-
-        devices = result.get(
-            "devices",
-            []
-        )
-
-
-        # بعض APIs تستخدم results بدل devices
-        if not devices:
-            devices = result.get(
-                "results",
-                []
-            )
-
-
-        if not isinstance(devices, list):
-            devices = []
-
-
-        if not devices:
-
-            send_message(
-                chat_id,
-                f"❌ لم أجد نتائج للهاتف:\n\n{text}"
-            )
-
-            return "OK"
-
-
-        devices = devices[:10]
-
-
-        # حفظ النتائج
-        user_state[chat_id] = {
-            "step": "choose",
-            "devices": devices
-        }
-
-
-        result_text = (
-            f"🔎 نتائج البحث عن:\n{text}\n\n"
-        )
-
-
-        for index, device in enumerate(
-            devices,
-            start=1
-        ):
-
-            if not isinstance(device, dict):
-                continue
-
-            name = get_value(
-                device,
-                ["name"],
-                "هاتف غير معروف"
-            )
-
-            brand = get_value(
-                device,
-                [
-                    "manufacturer_name",
-                    "brand_name",
-                    "manufacturer"
-                ],
-                ""
-            )
-
-            result_text += (
-                f"{index}. 📱 {name}"
-            )
-
-            if brand:
-                result_text += f" — {brand}"
-
-            result_text += "\n"
-
-
-        result_text += (
-            "\n✍️ اكتب رقم الهاتف الذي تريد اختياره.\n"
-            "مثال: 1"
-        )
-
-
-        send_message(
-            chat_id,
-            result_text
-        )
-
-        return "OK"
-
-
-    # =================================
-    # اختيار الهاتف
-    # =================================
-
-    if step == "choose":
-
-        try:
-            number = int(text.strip())
-
-        except ValueError:
-
-            send_message(
-                chat_id,
-                "❌ اكتب رقمًا فقط.\n\n"
-                "مثال: 1"
-            )
-
-            return "OK"
-
-
-        devices = state.get(
-            "devices",
-            []
-        )
-
-
-        if (
-            number < 1
-            or number > len(devices)
-        ):
-
-            send_message(
-                chat_id,
-                "❌ اختر رقمًا موجودًا في القائمة."
-            )
-
-            return "OK"
-
-
-        device = devices[number - 1]
-
-
-        if not isinstance(device, dict):
-
-            send_message(
-                chat_id,
-                "❌ حدث خطأ في بيانات الهاتف."
-            )
-
-            return "OK"
-
-
-        info = build_phone_info(device)
-
-
-        # إنهاء حالة الاختيار
-        user_state[chat_id] = {
-            "step": None
-        }
-
-
-        send_message(
-            chat_id,
-            info
-        )
-
-        return "OK"
-
-
-    # =================================
-    # رسالة افتراضية
-    # =================================
+    # ==========================
+    # رسالة غير معروفة
+    # ==========================
 
     send_message(
         chat_id,
-        "اكتب /start لفتح القائمة الرئيسية."
+        "استخدم /start لفتح القائمة الرئيسية."
     )
 
     return "OK"
 
 
-# =====================================
-# تشغيل التطبيق
-# =====================================
+# ==============================
+# تشغيل السيرفر
+# ==============================
 
 if __name__ == "__main__":
 

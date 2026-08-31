@@ -5,27 +5,21 @@ from flask import Flask, request
 
 app = Flask(__name__)
 
-# ==============================
-# إعدادات Telegram
-# ==============================
-
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-
-if not BOT_TOKEN:
-    print("⚠️ WARNING: BOT_TOKEN غير موجود في Environment Variables")
-
-
-# ==============================
-# تخزين مؤقت للطلاب
-# ==============================
 
 users = {}
 
 
-# ==============================
-# الأسئلة
-# يمكنك إضافة أسئلة أخرى هنا
-# ==============================
+# ==================================================
+# روابط أرشيف البكالوريا
+# ==================================================
+
+BAC_ARCHIVE_URL = "https://eddirasa.com/ens-sec/3as/bac-solutions/"
+
+
+# ==================================================
+# أسئلة الاختبارات
+# ==================================================
 
 QUIZES = {
 
@@ -49,11 +43,6 @@ QUIZES = {
             "question": "ما هو مشتق x² ؟",
             "options": ["x", "2x", "x²", "2"],
             "answer": 1
-        },
-        {
-            "question": "ما قيمة 10² ؟",
-            "options": ["20", "50", "100", "1000"],
-            "answer": 2
         }
     ],
 
@@ -61,16 +50,6 @@ QUIZES = {
         {
             "question": "ما هي وحدة قياس القوة؟",
             "options": ["جول", "واط", "نيوتن", "باسكال"],
-            "answer": 2
-        },
-        {
-            "question": "ما هي سرعة الضوء تقريبًا؟",
-            "options": [
-                "3000 km/s",
-                "30000 km/s",
-                "300000 km/s",
-                "3000000 km/s"
-            ],
             "answer": 2
         },
         {
@@ -105,16 +84,6 @@ QUIZES = {
                 "الريبوسومات"
             ],
             "answer": 2
-        },
-        {
-            "question": "ما الغاز الذي تمتصه النباتات في البناء الضوئي؟",
-            "options": [
-                "الأكسجين",
-                "النيتروجين",
-                "ثاني أكسيد الكربون",
-                "الهيدروجين"
-            ],
-            "answer": 2
         }
     ],
 
@@ -138,16 +107,6 @@ QUIZES = {
                 "1963"
             ],
             "answer": 2
-        },
-        {
-            "question": "ما هو تاريخ اندلاع الثورة الجزائرية؟",
-            "options": [
-                "1 نوفمبر 1954",
-                "5 يوليو 1962",
-                "19 مارس 1962",
-                "8 ماي 1945"
-            ],
-            "answer": 0
         }
     ],
 
@@ -159,16 +118,6 @@ QUIZES = {
                 "أوروبا",
                 "آسيا",
                 "أمريكا الجنوبية"
-            ],
-            "answer": 2
-        },
-        {
-            "question": "ما هو أكبر محيط في العالم؟",
-            "options": [
-                "المحيط الأطلسي",
-                "المحيط الهندي",
-                "المحيط الهادئ",
-                "المحيط المتجمد"
             ],
             "answer": 2
         }
@@ -184,16 +133,6 @@ QUIZES = {
                 "مكتبة"
             ],
             "answer": 2
-        },
-        {
-            "question": "ما نوع كلمة «جميل» في الجملة: «منظر جميل»؟",
-            "options": [
-                "فعل",
-                "اسم",
-                "صفة",
-                "حرف"
-            ],
-            "answer": 2
         }
     ],
 
@@ -207,16 +146,6 @@ QUIZES = {
                 "livrez"
             ],
             "answer": 0
-        },
-        {
-            "question": "Quel est le contraire de « grand » ?",
-            "options": [
-                "fort",
-                "petit",
-                "long",
-                "haut"
-            ],
-            "answer": 1
         }
     ],
 
@@ -230,29 +159,25 @@ QUIZES = {
                 "going"
             ],
             "answer": 2
-        },
-        {
-            "question": "Choose the correct sentence:",
-            "options": [
-                "He go to school.",
-                "He goes to school.",
-                "He going school.",
-                "He gone school."
-            ],
-            "answer": 1
         }
     ]
 }
 
 
-# ==============================
-# Telegram API
-# ==============================
+# ==================================================
+# Telegram
+# ==================================================
 
 def telegram_request(method, data):
+
+    if not BOT_TOKEN:
+        print("❌ BOT_TOKEN غير موجود")
+        return None
+
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
 
     try:
+
         response = requests.post(
             url,
             json=data,
@@ -262,14 +187,18 @@ def telegram_request(method, data):
         print(
             "Telegram:",
             method,
-            response.status_code,
-            response.text[:500]
+            response.status_code
         )
 
         return response.json()
 
     except Exception as error:
-        print("Telegram Error:", error)
+
+        print(
+            "Telegram error:",
+            error
+        )
+
         return None
 
 
@@ -289,7 +218,12 @@ def send_message(chat_id, text, keyboard=None):
     )
 
 
-def edit_message(chat_id, message_id, text, keyboard=None):
+def edit_message(
+    chat_id,
+    message_id,
+    text,
+    keyboard=None
+):
 
     data = {
         "chat_id": chat_id,
@@ -306,26 +240,27 @@ def edit_message(chat_id, message_id, text, keyboard=None):
     )
 
 
-# ==============================
+# ==================================================
 # القائمة الرئيسية
-# ==============================
+# ==================================================
 
 def main_menu():
 
     return {
         "keyboard": [
             ["📝 الاختبارات"],
+            ["📄 مواضيع البكالوريا"],
             ["📊 نتيجتي"],
-            ["🎓 تغيير الشعبة"],
+            ["🎓 شعب البكالوريا"],
             ["ℹ️ المساعدة"]
         ],
         "resize_keyboard": True
     }
 
 
-# ==============================
-# قائمة المواد
-# ==============================
+# ==================================================
+# قائمة الاختبارات
+# ==================================================
 
 def subjects_menu():
 
@@ -341,11 +276,8 @@ def subjects_menu():
     }
 
 
-# ==============================
-# تحويل اسم المادة
-# ==============================
-
 SUBJECT_NAMES = {
+
     "📐 الرياضيات": "الرياضيات",
     "⚡ الفيزياء": "الفيزياء",
     "🧬 العلوم": "العلوم",
@@ -357,9 +289,61 @@ SUBJECT_NAMES = {
 }
 
 
-# ==============================
-# بداية اختبار
-# ==============================
+# ==================================================
+# شعب البكالوريا
+# ==================================================
+
+BAC_BRANCHES = [
+    "🔬 علوم تجريبية",
+    "📐 رياضيات",
+    "⚙️ تقني رياضي",
+    "💼 تسيير واقتصاد",
+    "📚 آداب وفلسفة",
+    "🌍 لغات أجنبية",
+    "🎨 فنون"
+]
+
+
+def branches_menu():
+
+    rows = []
+
+    for branch in BAC_BRANCHES:
+
+        rows.append([branch])
+
+    rows.append(["🔙 رجوع"])
+
+    return {
+        "keyboard": rows,
+        "resize_keyboard": True
+    }
+
+
+# ==================================================
+# السنوات
+# ==================================================
+
+def years_menu():
+
+    return {
+        "keyboard": [
+            ["2026", "2025", "2024"],
+            ["2023", "2022", "2021"],
+            ["2020", "2019", "2018"],
+            ["2017", "2016", "2015"],
+            ["2014", "2013", "2012"],
+            ["2011", "2010", "2009"],
+            ["2008"],
+            ["🔙 رجوع"]
+        ],
+        "resize_keyboard": True
+    }
+
+
+# ==================================================
+# بدء الاختبار
+# ==================================================
 
 def start_quiz(chat_id, subject):
 
@@ -379,6 +363,7 @@ def start_quiz(chat_id, subject):
     random.shuffle(questions)
 
     users[chat_id] = {
+        "step": "quiz",
         "subject": subject,
         "questions": questions,
         "current": 0,
@@ -389,9 +374,9 @@ def start_quiz(chat_id, subject):
     send_question(chat_id)
 
 
-# ==============================
-# إرسال السؤال
-# ==============================
+# ==================================================
+# إرسال سؤال
+# ==================================================
 
 def send_question(chat_id):
 
@@ -411,42 +396,35 @@ def send_question(chat_id):
 
     question = questions[current]
 
-    options = question["options"]
-
     keyboard = []
 
-    for index, option in enumerate(options):
+    for index, option in enumerate(
+        question["options"]
+    ):
 
-        keyboard.append(
-            [
-                {
-                    "text": f"{chr(65 + index)} - {option}",
-                    "callback_data": f"answer_{index}"
-                }
-            ]
-        )
-
-    reply_markup = {
-        "inline_keyboard": keyboard
-    }
-
-    text = (
-        f"📝 اختبار {user['subject']}\n\n"
-        f"السؤال {current + 1} من {len(questions)}\n\n"
-        f"❓ {question['question']}\n\n"
-        "اختر الإجابة الصحيحة:"
-    )
+        keyboard.append([
+            {
+                "text": f"{chr(65 + index)} - {option}",
+                "callback_data": f"answer_{index}"
+            }
+        ])
 
     send_message(
         chat_id,
-        text,
-        reply_markup
+        f"📝 اختبار {user['subject']}\n\n"
+        f"السؤال {current + 1} من "
+        f"{len(questions)}\n\n"
+        f"❓ {question['question']}\n\n"
+        "اختر الإجابة:",
+        {
+            "inline_keyboard": keyboard
+        }
     )
 
 
-# ==============================
+# ==================================================
 # إنهاء الاختبار
-# ==============================
+# ==================================================
 
 def finish_quiz(chat_id):
 
@@ -463,53 +441,67 @@ def finish_quiz(chat_id):
     )
 
     if percentage >= 80:
-        message = "🏆 ممتاز! مستوى رائع جدًا."
-    elif percentage >= 60:
-        message = "👏 جيد جدًا! استمر في المراجعة."
-    elif percentage >= 50:
-        message = "👍 نتيجة مقبولة، ويمكنك تحسينها."
-    else:
-        message = "💪 لا تستسلم، راجع الدرس وأعد الاختبار."
 
-    users[chat_id]["last_score"] = score
-    users[chat_id]["last_total"] = total
-    users[chat_id]["last_percentage"] = percentage
+        message = "🏆 ممتاز! استمر هكذا."
+
+    elif percentage >= 60:
+
+        message = "👏 جيد جدًا، واصل المراجعة."
+
+    elif percentage >= 50:
+
+        message = "👍 نتيجة مقبولة ويمكن تحسينها."
+
+    else:
+
+        message = "💪 لا تستسلم، راجع الدروس وأعد الاختبار."
+
+    user["last_score"] = score
+    user["last_total"] = total
+    user["last_percentage"] = percentage
 
     send_message(
         chat_id,
         f"🎉 انتهى الاختبار!\n\n"
         f"📚 المادة: {user['subject']}\n"
-        f"✅ الإجابات الصحيحة: {score}\n"
-        f"❌ الإجابات الخاطئة: {total - score}\n"
+        f"✅ صحيح: {score}\n"
+        f"❌ خطأ: {total - score}\n"
         f"📊 النتيجة: {percentage}%\n\n"
-        f"{message}\n\n"
-        "🔄 يمكنك بدء اختبار جديد من القائمة."
+        f"{message}"
     )
 
-    users[chat_id]["questions"] = []
-    users[chat_id]["current"] = 0
-    users[chat_id]["score"] = 0
 
-
-# ==============================
-# معالجة أزرار الاختبار
-# ==============================
+# ==================================================
+# Callback
+# ==================================================
 
 def handle_callback(callback):
 
     callback_id = callback.get("id")
 
-    data = callback.get("data", "")
+    data = callback.get(
+        "data",
+        ""
+    )
 
-    message = callback.get("message", {})
+    message = callback.get(
+        "message",
+        {}
+    )
 
-    chat = message.get("chat", {})
+    chat = message.get(
+        "chat",
+        {}
+    )
 
-    chat_id = chat.get("id")
+    chat_id = chat.get(
+        "id"
+    )
 
-    message_id = message.get("message_id")
+    message_id = message.get(
+        "message_id"
+    )
 
-    # إزالة حالة الضغط من Telegram
     telegram_request(
         "answerCallbackQuery",
         {
@@ -523,10 +515,15 @@ def handle_callback(callback):
     user = users.get(chat_id)
 
     if not user:
-        send_message(
-            chat_id,
-            "❌ انتهى الاختبار. ابدأ اختبارًا جديدًا."
-        )
+        return
+
+    if data == "next_question":
+
+        user["current"] += 1
+        user["answered"] = False
+
+        send_question(chat_id)
+
         return
 
     if not data.startswith("answer_"):
@@ -545,16 +542,12 @@ def handle_callback(callback):
         )
 
     except ValueError:
+
         return
 
     current = user["current"]
 
-    questions = user["questions"]
-
-    if current >= len(questions):
-        return
-
-    question = questions[current]
+    question = user["questions"][current]
 
     correct = question["answer"]
 
@@ -564,25 +557,23 @@ def handle_callback(callback):
 
         user["score"] += 1
 
-        result_text = "✅ إجابة صحيحة!"
+        result = "✅ إجابة صحيحة!"
 
     else:
 
         correct_text = question["options"][correct]
 
-        result_text = (
-            f"❌ إجابة خاطئة.\n\n"
+        result = (
+            "❌ إجابة خاطئة.\n\n"
             f"✅ الإجابة الصحيحة: {correct_text}"
         )
 
     edit_message(
         chat_id,
         message_id,
-        (
-            f"{result_text}\n\n"
-            f"📊 نقاطك الحالية: {user['score']}\n\n"
-            "⏭️ اضغط «السؤال التالي» للمتابعة."
-        ),
+        f"{result}\n\n"
+        f"📊 نقاطك: {user['score']}\n\n"
+        "اضغط للانتقال للسؤال التالي:",
         {
             "inline_keyboard": [
                 [
@@ -596,44 +587,9 @@ def handle_callback(callback):
     )
 
 
-# ==============================
-# السؤال التالي
-# ==============================
-
-def handle_next_question(callback):
-
-    callback_id = callback.get("id")
-
-    message = callback.get("message", {})
-
-    chat = message.get("chat", {})
-
-    chat_id = chat.get("id")
-
-    telegram_request(
-        "answerCallbackQuery",
-        {
-            "callback_query_id": callback_id
-        }
-    )
-
-    if not chat_id:
-        return
-
-    user = users.get(chat_id)
-
-    if not user:
-        return
-
-    user["current"] += 1
-    user["answered"] = False
-
-    send_question(chat_id)
-
-
-# ==============================
+# ==================================================
 # Flask
-# ==============================
+# ==================================================
 
 @app.route("/", methods=["GET"])
 def home():
@@ -641,46 +597,27 @@ def home():
     return "🇩🇿 BAC DZ AI is running!"
 
 
-@app.route("/telegram/webhook", methods=["POST"])
+@app.route(
+    "/telegram/webhook",
+    methods=["POST"]
+)
 def telegram_webhook():
 
     data = request.get_json(
         silent=True
     ) or {}
 
-    # ==========================
-    # Callback Query
-    # ==========================
-
-    callback = data.get("callback_query")
+    callback = data.get(
+        "callback_query"
+    )
 
     if callback:
 
-        callback_data = callback.get(
-            "data",
-            ""
+        handle_callback(
+            callback
         )
 
-        if callback_data == "next_question":
-
-            handle_next_question(
-                callback
-            )
-
-        elif callback_data.startswith(
-            "answer_"
-        ):
-
-            handle_callback(
-                callback
-            )
-
         return "OK"
-
-
-    # ==========================
-    # Message
-    # ==========================
 
     message = data.get(
         "message",
@@ -705,9 +642,9 @@ def telegram_webhook():
         return "OK"
 
 
-    # ==========================
+    # ==========================================
     # START
-    # ==========================
+    # ==========================================
 
     if text == "/start":
 
@@ -718,17 +655,17 @@ def telegram_webhook():
         send_message(
             chat_id,
             "🇩🇿 مرحبًا بك في BAC DZ AI 🎓\n\n"
-            "رفيقك في التحضير للبكالوريا 📚\n\n"
-            "اختر الخدمة التي تريدها:",
+            "مساعدك للتحضير للبكالوريا.\n\n"
+            "اختر الخدمة:",
             main_menu()
         )
 
         return "OK"
 
 
-    # ==========================
+    # ==========================================
     # الاختبارات
-    # ==========================
+    # ==========================================
 
     if text == "📝 الاختبارات":
 
@@ -738,47 +675,123 @@ def telegram_webhook():
 
         send_message(
             chat_id,
-            "📚 اختر المادة التي تريد اختبار نفسك فيها:",
+            "📚 اختر المادة:",
             subjects_menu()
         )
 
         return "OK"
 
 
-    # ==========================
-    # اختيار المادة
-    # ==========================
+    # ==========================================
+    # اختيار مادة
+    # ==========================================
 
     if text in SUBJECT_NAMES:
 
-        subject = SUBJECT_NAMES[text]
-
         start_quiz(
             chat_id,
-            subject
+            SUBJECT_NAMES[text]
         )
 
         return "OK"
 
 
-    # ==========================
-    # رجوع
-    # ==========================
+    # ==========================================
+    # مواضيع البكالوريا
+    # ==========================================
 
-    if text == "🔙 رجوع":
+    if text == "📄 مواضيع البكالوريا":
+
+        users[chat_id] = {
+            "step": "bac_branch"
+        }
 
         send_message(
             chat_id,
-            "🏠 القائمة الرئيسية:",
-            main_menu()
+            "🎓 اختر شعبة البكالوريا:",
+            branches_menu()
         )
 
         return "OK"
 
 
-    # ==========================
+    # ==========================================
+    # اختيار الشعبة
+    # ==========================================
+
+    if (
+        text in BAC_BRANCHES
+        and users.get(chat_id, {}).get("step")
+        == "bac_branch"
+    ):
+
+        users[chat_id] = {
+            "step": "bac_year",
+            "branch": text
+        }
+
+        send_message(
+            chat_id,
+            f"🎓 الشعبة: {text}\n\n"
+            "📅 اختر السنة:",
+            years_menu()
+        )
+
+        return "OK"
+
+
+    # ==========================================
+    # اختيار السنة
+    # ==========================================
+
+    if (
+        text.isdigit()
+        and len(text) == 4
+        and users.get(chat_id, {}).get("step")
+        == "bac_year"
+    ):
+
+        year = int(text)
+
+        if year < 2008 or year > 2026:
+
+            send_message(
+                chat_id,
+                "❌ اختر سنة بين 2008 و2026."
+            )
+
+            return "OK"
+
+        branch = users[chat_id].get(
+            "branch",
+            ""
+        )
+
+        users[chat_id]["year"] = year
+
+        send_message(
+            chat_id,
+            f"🎓 الشعبة: {branch}\n"
+            f"📅 السنة: {year}\n\n"
+            "📚 افتح أرشيف المواضيع والحلول:",
+            {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "📄 فتح مواضيع البكالوريا",
+                            "url": BAC_ARCHIVE_URL
+                        }
+                    ]
+                ]
+            }
+        )
+
+        return "OK"
+
+
+    # ==========================================
     # النتيجة
-    # ==========================
+    # ==========================================
 
     if text == "📊 نتيجتي":
 
@@ -792,16 +805,16 @@ def telegram_webhook():
             send_message(
                 chat_id,
                 "📊 لا توجد نتيجة بعد.\n\n"
-                "ابدأ اختبارًا أولًا من 📝 الاختبارات."
+                "ابدأ اختبارًا من 📝 الاختبارات."
             )
 
         else:
 
             send_message(
                 chat_id,
-                f"📊 آخر نتيجة لك:\n\n"
-                f"✅ الصحيح: {user['last_score']}\n"
-                f"❌ الخطأ: "
+                f"📊 آخر نتيجة:\n\n"
+                f"✅ صحيح: {user['last_score']}\n"
+                f"❌ خطأ: "
                 f"{user['last_total'] - user['last_score']}\n"
                 f"🏆 النتيجة: "
                 f"{user['last_percentage']}%"
@@ -810,23 +823,49 @@ def telegram_webhook():
         return "OK"
 
 
-    # ==========================
-    # تغيير الشعبة
-    # ==========================
+    # ==========================================
+    # الشعب
+    # ==========================================
 
-    if text == "🎓 تغيير الشعبة":
+    if text == "🎓 شعب البكالوريا":
 
         send_message(
             chat_id,
-            "🎓 سيتم إضافة اختيار الشعبة في المرحلة القادمة."
+            "🎓 الشعب المتوفرة:\n\n"
+            "🔬 علوم تجريبية\n"
+            "📐 رياضيات\n"
+            "⚙️ تقني رياضي\n"
+            "💼 تسيير واقتصاد\n"
+            "📚 آداب وفلسفة\n"
+            "🌍 لغات أجنبية\n"
+            "🎨 فنون"
         )
 
         return "OK"
 
 
-    # ==========================
+    # ==========================================
+    # رجوع
+    # ==========================================
+
+    if text == "🔙 رجوع":
+
+        users[chat_id] = {
+            "step": "main"
+        }
+
+        send_message(
+            chat_id,
+            "🏠 القائمة الرئيسية:",
+            main_menu()
+        )
+
+        return "OK"
+
+
+    # ==========================================
     # المساعدة
-    # ==========================
+    # ==========================================
 
     if text == "ℹ️ المساعدة":
 
@@ -834,32 +873,31 @@ def telegram_webhook():
             chat_id,
             "ℹ️ BAC DZ AI\n\n"
             "📝 الاختبارات:\n"
-            "اختر المادة وأجب عن الأسئلة.\n\n"
+            "اختبر نفسك في المواد المختلفة.\n\n"
+            "📄 مواضيع البكالوريا:\n"
+            "اختر الشعبة والسنة للوصول إلى الأرشيف.\n\n"
             "📊 نتيجتي:\n"
-            "تعرف على آخر نتيجة لك.\n\n"
-            "🎓 تغيير الشعبة:\n"
-            "سيتم تطويرها لاحقًا.\n\n"
-            "🚀 سيتم إضافة خدمات أخرى في الإصدارات القادمة."
+            "تعرف على آخر نتيجة للاختبار."
         )
 
         return "OK"
 
 
-    # ==========================
+    # ==========================================
     # رسالة غير معروفة
-    # ==========================
+    # ==========================================
 
     send_message(
         chat_id,
-        "استخدم /start لفتح القائمة الرئيسية."
+        "اكتب /start لفتح القائمة الرئيسية."
     )
 
     return "OK"
 
 
-# ==============================
-# تشغيل السيرفر
-# ==============================
+# ==================================================
+# تشغيل التطبيق
+# ==================================================
 
 if __name__ == "__main__":
 

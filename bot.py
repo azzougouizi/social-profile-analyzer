@@ -1,9 +1,14 @@
 import os
 import random
+import sqlite3
 import requests
 from flask import Flask, request
 
+from questions import QUESTIONS
+
+
 app = Flask(__name__)
+
 
 # =========================================================
 # إعدادات
@@ -20,533 +25,265 @@ TELEGRAM_API = (
     else ""
 )
 
-# تخزين مؤقت للمستخدمين
-users = {}
+DB_FILE = "students.db"
 
 
 # =========================================================
-# بنك الأسئلة
+# قاعدة البيانات
 # =========================================================
 
-QUESTIONS = {
+def get_db():
+    conn = sqlite3.connect(
+        DB_FILE,
+        timeout=30
+    )
 
-    "الفلسفة": [
+    conn.row_factory = sqlite3.Row
 
-        {
-            "q": "ما المقصود بالفلسفة؟",
-            "options": [
-                "دراسة المال",
-                "حب الحكمة والبحث العقلي عن الحقيقة",
-                "دراسة النباتات",
-                "حفظ المعلومات فقط"
-            ],
-            "answer": 1,
-            "explanation":
-                "الفلسفة تعني حب الحكمة، وتهدف إلى التفكير العقلي والنقدي "
-                "في قضايا الإنسان والوجود والمعرفة والقيم."
-        },
-
-        {
-            "q": "من صاحب المقولة: أنا أفكر إذن أنا موجود؟",
-            "options": [
-                "أفلاطون",
-                "أرسطو",
-                "ديكارت",
-                "سقراط"
-            ],
-            "answer": 2,
-            "explanation":
-                "المقولة الشهيرة «أنا أفكر إذن أنا موجود» تعود إلى رينيه ديكارت."
-        },
-
-        {
-            "q": "ما المنهج الذي يعتمد على الشك للوصول إلى اليقين عند ديكارت؟",
-            "options": [
-                "المنهج التجريبي",
-                "الشك المنهجي",
-                "المنهج التاريخي",
-                "المنهج الأدبي"
-            ],
-            "answer": 1,
-            "explanation":
-                "اعتمد ديكارت الشك المنهجي باعتباره وسيلة للوصول إلى الحقيقة اليقينية."
-        },
-
-        {
-            "q": "ما المقصود بالاستدلال؟",
-            "options": [
-                "حفظ النصوص",
-                "الانتقال من مقدمات إلى نتيجة",
-                "قراءة الشعر",
-                "وصف الطبيعة"
-            ],
-            "answer": 1,
-            "explanation":
-                "الاستدلال هو عملية عقلية ننتقل فيها من مقدمات أو أدلة إلى نتيجة."
-        },
-
-        {
-            "q": "من الفيلسوف الذي اشتهر بنظرية المثل؟",
-            "options": [
-                "أفلاطون",
-                "كانط",
-                "نيتشه",
-                "ديكارت"
-            ],
-            "answer": 0,
-            "explanation":
-                "أفلاطون اشتهر بنظرية المثل التي تميز بين العالم المحسوس والعالم العقلي."
-        },
-
-        {
-            "q": "ما وظيفة الفلسفة الأساسية؟",
-            "options": [
-                "إلغاء التفكير",
-                "تنمية التفكير النقدي",
-                "حفظ التواريخ",
-                "تعلم الحساب فقط"
-            ],
-            "answer": 1,
-            "explanation":
-                "من أهم وظائف الفلسفة تدريب الإنسان على التفكير النقدي وطرح الأسئلة وتحليل الأفكار."
-        },
-
-        {
-            "q": "ما المقصود بالحرية؟",
-            "options": [
-                "فعل أي شيء دون مسؤولية",
-                "القدرة على الاختيار مع تحمل المسؤولية",
-                "رفض القوانين دائمًا",
-                "عدم التفكير"
-            ],
-            "answer": 1,
-            "explanation":
-                "الحرية لا تعني الفوضى، بل ترتبط بالاختيار وتحمل نتائج الاختيارات."
-        },
-
-        {
-            "q": "من الفيلسوف المرتبط بفلسفة الأخلاق القائمة على الواجب؟",
-            "options": [
-                "كانط",
-                "أفلاطون",
-                "أرسطو",
-                "سقراط"
-            ],
-            "answer": 0,
-            "explanation":
-                "كانط ربط الأخلاق بالواجب والمبدأ الأخلاقي العام."
-        },
-
-        {
-            "q": "ما المقصود بالحقيقة؟",
-            "options": [
-                "الرأي الشخصي دائمًا",
-                "مطابقة الفكر أو الحكم للواقع",
-                "الخيال",
-                "الإشاعة"
-            ],
-            "answer": 1,
-            "explanation":
-                "في التصور الكلاسيكي للحقيقة، تكون الحقيقة مطابقة الحكم أو الفكر للواقع."
-        },
-
-        {
-            "q": "من صاحب كتاب الجمهورية؟",
-            "options": [
-                "أفلاطون",
-                "أرسطو",
-                "ديكارت",
-                "هيغل"
-            ],
-            "answer": 0,
-            "explanation":
-                "كتاب الجمهورية من أشهر مؤلفات أفلاطون."
-        },
-
-        {
-            "q": "ما المقصود بالمنطق؟",
-            "options": [
-                "علم التفكير الصحيح",
-                "علم النبات",
-                "علم الاقتصاد",
-                "علم التاريخ"
-            ],
-            "answer": 0,
-            "explanation":
-                "المنطق يهتم بقواعد التفكير والاستدلال الصحيح."
-        },
-
-        {
-            "q": "من قال إن الإنسان حيوان سياسي؟",
-            "options": [
-                "أرسطو",
-                "ديكارت",
-                "كانط",
-                "نيتشه"
-            ],
-            "answer": 0,
-            "explanation":
-                "أرسطو رأى أن الإنسان كائن اجتماعي وسياسي بطبيعته."
-        }
-
-    ],
+    return conn
 
 
-    # =====================================================
-    # الفرنسية
-    # =====================================================
+def init_db():
 
-    "الفرنسية": [
+    conn = get_db()
 
-        {
-            "q": "Quel est le synonyme de « heureux » ?",
-            "options": [
-                "triste",
-                "content",
-                "fatigué",
-                "malade"
-            ],
-            "answer": 1,
-            "explanation":
-                "« heureux » signifie « content »."
-        },
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS students (
+            chat_id INTEGER PRIMARY KEY,
+            correct INTEGER DEFAULT 0,
+            wrong INTEGER DEFAULT 0,
+            total INTEGER DEFAULT 0,
+            best_streak INTEGER DEFAULT 0,
+            current_streak INTEGER DEFAULT 0,
+            stars INTEGER DEFAULT 0
+        )
+    """)
 
-        {
-            "q": "Quel est le contraire de « difficile » ?",
-            "options": [
-                "compliqué",
-                "facile",
-                "long",
-                "fort"
-            ],
-            "answer": 1,
-            "explanation":
-                "Le contraire de « difficile » est « facile »."
-        },
-
-        {
-            "q": "Choisissez le bon verbe : Je ___ au lycée.",
-            "options": [
-                "vais",
-                "va",
-                "aller",
-                "allons"
-            ],
-            "answer": 0,
-            "explanation":
-                "Avec « je », le verbe aller se conjugue « je vais »."
-        },
-
-        {
-            "q": "Quel est le pluriel de « cheval » ?",
-            "options": [
-                "chevals",
-                "chevaux",
-                "chevales",
-                "chevaus"
-            ],
-            "answer": 1,
-            "explanation":
-                "Le pluriel irrégulier de « cheval » est « chevaux »."
-        },
-
-        {
-            "q": "Quel temps utilise-t-on dans : « Hier, j'ai étudié » ?",
-            "options": [
-                "Présent",
-                "Futur",
-                "Passé composé",
-                "Imparfait"
-            ],
-            "answer": 2,
-            "explanation":
-                "« J'ai étudié » est au passé composé."
-        },
-
-        {
-            "q": "Complétez : Nous ___ nos devoirs.",
-            "options": [
-                "fait",
-                "faisons",
-                "faire",
-                "faites"
-            ],
-            "answer": 1,
-            "explanation":
-                "Avec « nous », le verbe faire devient « nous faisons »."
-        },
-
-        {
-            "q": "Quel mot est un adjectif ?",
-            "options": [
-                "rapidement",
-                "maison",
-                "intelligent",
-                "courir"
-            ],
-            "answer": 2,
-            "explanation":
-                "« intelligent » est un adjectif qualificatif."
-        },
-
-        {
-            "q": "Quel est le féminin de « acteur » ?",
-            "options": [
-                "acteuse",
-                "actrice",
-                "acteurse",
-                "acteure"
-            ],
-            "answer": 1,
-            "explanation":
-                "Le féminin de « acteur » est « actrice »."
-        },
-
-        {
-            "q": "Complétez : Si j'avais le temps, je ___ davantage.",
-            "options": [
-                "lis",
-                "lirais",
-                "lirai",
-                "lu"
-            ],
-            "answer": 1,
-            "explanation":
-                "Après « si + imparfait », on utilise généralement le conditionnel présent."
-        },
-
-        {
-            "q": "Quel est le contraire de « ancien » ?",
-            "options": [
-                "vieux",
-                "moderne",
-                "passé",
-                "historique"
-            ],
-            "answer": 1,
-            "explanation":
-                "Le contraire de « ancien » peut être « moderne »."
-        }
-
-    ],
+    conn.commit()
+    conn.close()
 
 
-    # =====================================================
-    # الإنجليزية
-    # =====================================================
+def ensure_student(chat_id):
 
-    "الإنجليزية": [
+    conn = get_db()
 
-        {
-            "q": "Choose the correct form: She ___ English every day.",
-            "options": [
-                "study",
-                "studies",
-                "studying",
-                "studied"
-            ],
-            "answer": 1,
-            "explanation":
-                "With « she » in the present simple, the verb takes -s: studies."
-        },
+    conn.execute("""
+        INSERT OR IGNORE INTO students
+        (chat_id, correct, wrong, total, best_streak, current_streak, stars)
+        VALUES (?, 0, 0, 0, 0, 0, 0)
+    """, (chat_id,))
 
-        {
-            "q": "What is the past tense of « go »?",
-            "options": [
-                "goed",
-                "gone",
-                "went",
-                "going"
-            ],
-            "answer": 2,
-            "explanation":
-                "The past simple of « go » is « went »."
-        },
-
-        {
-            "q": "Choose: I ___ a student.",
-            "options": [
-                "am",
-                "is",
-                "are",
-                "be"
-            ],
-            "answer": 0,
-            "explanation":
-                "With « I », we use « am »."
-        },
-
-        {
-            "q": "What is the opposite of « easy »?",
-            "options": [
-                "simple",
-                "hard",
-                "short",
-                "small"
-            ],
-            "answer": 1,
-            "explanation":
-                "The opposite of « easy » is « hard » or « difficult »."
-        },
-
-        {
-            "q": "Choose the correct sentence.",
-            "options": [
-                "He don't like football.",
-                "He doesn't like football.",
-                "He doesn't likes football.",
-                "He not like football."
-            ],
-            "answer": 1,
-            "explanation":
-                "With he/she/it, negative present simple uses doesn't + base verb."
-        },
-
-        {
-            "q": "What is the comparative form of « good »?",
-            "options": [
-                "gooder",
-                "more good",
-                "better",
-                "best"
-            ],
-            "answer": 2,
-            "explanation":
-                "The comparative form of good is better."
-        },
-
-        {
-            "q": "Choose: They ___ playing now.",
-            "options": [
-                "is",
-                "am",
-                "are",
-                "be"
-            ],
-            "answer": 2,
-            "explanation":
-                "Present continuous with they uses « are »."
-        },
-
-        {
-            "q": "What does « environment » mean?",
-            "options": [
-                "البيئة",
-                "الاقتصاد",
-                "الرياضة",
-                "التاريخ"
-            ],
-            "answer": 0,
-            "explanation":
-                "Environment means البيئة."
-        },
-
-        {
-            "q": "Choose the correct word: I have lived here ___ 2020.",
-            "options": [
-                "for",
-                "since",
-                "at",
-                "on"
-            ],
-            "answer": 1,
-            "explanation":
-                "We use « since » with a starting point in time."
-        },
-
-        {
-            "q": "What is the past participle of « write »?",
-            "options": [
-                "wrote",
-                "written",
-                "writing",
-                "writes"
-            ],
-            "answer": 1,
-            "explanation":
-                "The past participle of write is written."
-        }
-
-    ],
+    conn.commit()
+    conn.close()
 
 
-    # =====================================================
-    # الإسبانية
-    # =====================================================
+def get_student(chat_id):
 
-    "الإسبانية": [
+    ensure_student(chat_id)
 
-        {
-            "q": "¿Cómo se dice « مرحبا » en español?",
-            "options": [
-                "Adiós",
-                "Hola",
-                "Gracias",
-                "Por favor"
-            ],
-            "answer": 1,
-            "explanation":
-                "Hola significa مرحبًا."
-        },
+    conn = get_db()
 
-        {
-            "q": "¿Qué significa « gracias »?",
-            "options": [
-                "مرحبا",
-                "شكرا",
-                "وداعا",
-                "نعم"
-            ],
-            "answer": 1,
-            "explanation":
-                "Gracias significa شكرا."
-        },
+    row = conn.execute("""
+        SELECT *
+        FROM students
+        WHERE chat_id = ?
+    """, (chat_id,)).fetchone()
 
-        {
-            "q": "Completa: Yo ___ estudiante.",
-            "options": [
-                "soy",
-                "eres",
-                "es",
-                "son"
-            ],
-            "answer": 0,
-            "explanation":
-                "Con « yo » usamos « soy » del verbo ser."
-        },
+    conn.close()
 
-        {
-            "q": "¿Cuál es el contrario de « grande »?",
-            "options": [
-                "alto",
-                "pequeño",
-                "bonito",
-                "rápido"
-            ],
-            "answer": 1,
-            "explanation":
-                "El contrario de grande es pequeño."
-        },
+    return row
 
-        {
-            "q": "¿Cómo se dice « كتاب »?",
-            "options": [
-                "mesa",
-                "casa",
-                "libro",
-                "escuela"
-            ],
-            "answer": 2,
-            "explanation":
-                "Libro significa كتاب."
-        }
 
-    ]
-}
+def update_student(
+    chat_id,
+    correct=False
+):
+
+    ensure_student(chat_id)
+
+    conn = get_db()
+
+    if correct:
+
+        conn.execute("""
+            UPDATE students
+            SET
+                correct = correct + 1,
+                total = total + 1,
+                current_streak = current_streak + 1
+            WHERE chat_id = ?
+        """, (chat_id,))
+
+    else:
+
+        conn.execute("""
+            UPDATE students
+            SET
+                wrong = wrong + 1,
+                total = total + 1,
+                current_streak = 0
+            WHERE chat_id = ?
+        """, (chat_id,))
+
+    conn.execute("""
+        UPDATE students
+        SET best_streak =
+            CASE
+                WHEN current_streak > best_streak
+                THEN current_streak
+                ELSE best_streak
+            END
+        WHERE chat_id = ?
+    """, (chat_id,))
+
+    conn.commit()
+    conn.close()
 
 
 # =========================================================
-# أدوات Telegram
+# نظام النجوم
+# =========================================================
+
+def calculate_stars(correct):
+
+    if correct >= 200:
+        return 5
+
+    if correct >= 150:
+        return 4
+
+    if correct >= 100:
+        return 3
+
+    if correct >= 60:
+        return 2
+
+    if correct >= 30:
+        return 1
+
+    return 0
+
+
+def star_title(stars):
+
+    titles = {
+        0: "🌱 بداية الطريق",
+        1: "⭐ طالب طموح",
+        2: "⭐⭐ طالب مجتهد",
+        3: "⭐⭐⭐ طالب متفوق",
+        4: "⭐⭐⭐⭐ طالب متميز",
+        5: "⭐⭐⭐⭐⭐ طالب قوي وذكي"
+    }
+
+    return titles.get(
+        stars,
+        "🌱 بداية الطريق"
+    )
+
+
+def next_star(correct):
+
+    if correct < 30:
+        return 30, 1
+
+    if correct < 60:
+        return 60, 2
+
+    if correct < 100:
+        return 100, 3
+
+    if correct < 150:
+        return 150, 4
+
+    if correct < 200:
+        return 200, 5
+
+    return None, 5
+
+
+def check_star_upgrade(chat_id):
+
+    student = get_student(chat_id)
+
+    old_stars = student["stars"]
+
+    new_stars = calculate_stars(
+        student["correct"]
+    )
+
+    if new_stars <= old_stars:
+        return
+
+    conn = get_db()
+
+    conn.execute("""
+        UPDATE students
+        SET stars = ?
+        WHERE chat_id = ?
+    """, (
+        new_stars,
+        chat_id
+    ))
+
+    conn.commit()
+    conn.close()
+
+    title = star_title(
+        new_stars
+    )
+
+    messages = {
+        1:
+            "🎉 مبروك!\n\n"
+            "لقد وصلت إلى أول نجمة! ⭐\n"
+            "أنت الآن: طالب طموح.\n\n"
+            "🔥 البداية ممتازة، لا تتوقف!",
+
+        2:
+            "🎉 إنجاز رائع!\n\n"
+            "⭐⭐ حصلت على نجمتين!\n"
+            "أنت الآن: طالب مجتهد.\n\n"
+            "🚀 واصل، النجمة الثالثة تنتظرك!",
+
+        3:
+            "🏆 مذهل!\n\n"
+            "⭐⭐⭐ حصلت على ثلاث نجوم!\n"
+            "أنت الآن: طالب متفوق.\n\n"
+            "🧠 مستواك يرتفع، استمر!",
+
+        4:
+            "🔥 رائع جدًا!\n\n"
+            "⭐⭐⭐⭐ وصلت إلى أربع نجوم!\n"
+            "أنت الآن: طالب متميز.\n\n"
+            "🎯 لم يبقَ إلا النجمة الخامسة!",
+
+        5:
+            "🏆🔥 إنجاز استثنائي!\n\n"
+            "⭐⭐⭐⭐⭐\n"
+            "أنت الآن: طالب قوي وذكي!\n\n"
+            "🧠 200 إجابة صحيحة!\n"
+            "لقد أثبتَّ أن الاستمرار يصنع النجاح.\n\n"
+            "🎓 لا تتوقف حتى تحقق هدفك في البكالوريا!"
+    }
+
+    send_message(
+        chat_id,
+        messages.get(
+            new_stars,
+            f"🎉 مبروك!\n{title}"
+        )
+    )
+
+
+# =========================================================
+# حالة الاختبارات
+# =========================================================
+
+quiz_sessions = {}
+
+
+# =========================================================
+# Telegram API
 # =========================================================
 
 def telegram(method, data):
@@ -563,24 +300,34 @@ def telegram(method, data):
         )
 
         print(
-            "Telegram:",
-            method,
-            response.status_code
+            f"Telegram {method}: "
+            f"HTTP {response.status_code}"
         )
+
+        if not response.ok:
+
+            print(
+                "Telegram response:",
+                response.text
+            )
 
         return response.json()
 
     except Exception as error:
 
         print(
-            "Telegram error:",
+            "❌ Telegram error:",
             error
         )
 
         return None
 
 
-def send_message(chat_id, text, keyboard=None):
+def send_message(
+    chat_id,
+    text,
+    keyboard=None
+):
 
     data = {
         "chat_id": chat_id,
@@ -598,7 +345,7 @@ def send_message(chat_id, text, keyboard=None):
 
 def answer_callback(callback_id):
 
-    telegram(
+    return telegram(
         "answerCallbackQuery",
         {
             "callback_query_id": callback_id
@@ -686,12 +433,34 @@ def bac_keyboard():
 
 
 # =========================================================
-# بدء اختبار
+# رسائل تحفيزية
 # =========================================================
 
-def start_quiz(chat_id, subject):
+MOTIVATION = [
+    "🔥 ممتاز! استمر، كل إجابة تقربك من هدفك.",
+    "💪 لا تستسلم! الخطأ اليوم قد يصبح نقطة قوة غدًا.",
+    "🧠 رائع! أنت تتعلم مع كل سؤال.",
+    "🚀 استمر! النجاح نتيجة الاستمرارية.",
+    "🎯 ركّز، تقدّمك واضح!",
+    "🏆 بطل! سؤال آخر وقد تتجاوز مستواك السابق.",
+    "📚 المعرفة تتراكم، لا تتوقف.",
+    "🔥 هكذا نريدك! طموح ومستمر."
+]
 
-    questions = QUESTIONS.get(subject, [])
+
+# =========================================================
+# بدء الاختبار
+# =========================================================
+
+def start_quiz(
+    chat_id,
+    subject
+):
+
+    questions = QUESTIONS.get(
+        subject,
+        []
+    )
 
     if not questions:
 
@@ -702,7 +471,6 @@ def start_quiz(chat_id, subject):
 
         return
 
-    # نختار حتى 10 أسئلة
     count = min(
         10,
         len(questions)
@@ -713,17 +481,25 @@ def start_quiz(chat_id, subject):
         count
     )
 
-    users[chat_id] = {
-        "step": "quiz",
+    quiz_sessions[chat_id] = {
         "subject": subject,
         "questions": selected,
         "current": 0,
-        "score": 0,
-        "streak": 0,
-        "best_streak": 0
+        "quiz_score": 0,
+        "answered": False
     }
 
-    send_question(chat_id)
+    send_message(
+        chat_id,
+        "🚀 بدأ الاختبار!\n\n"
+        f"📚 المادة: {subject}\n"
+        f"📝 عدد الأسئلة: {count}\n\n"
+        "ركز جيدًا، وكل إجابة صحيحة تقربك من النجمة القادمة ⭐"
+    )
+
+    send_question(
+        chat_id
+    )
 
 
 # =========================================================
@@ -732,41 +508,53 @@ def start_quiz(chat_id, subject):
 
 def send_question(chat_id):
 
-    user = users.get(chat_id)
+    session = quiz_sessions.get(
+        chat_id
+    )
 
-    if not user:
+    if not session:
         return
 
-    index = user["current"]
-    questions = user["questions"]
+    current = session["current"]
+    questions = session["questions"]
 
-    if index >= len(questions):
+    if current >= len(questions):
 
-        finish_quiz(chat_id)
+        finish_quiz(
+            chat_id
+        )
 
         return
 
-    question = questions[index]
+    question = questions[current]
 
     keyboard = []
 
-    for i, option in enumerate(
+    for index, option in enumerate(
         question["options"]
     ):
 
         keyboard.append([
             {
-                "text": f"{chr(65 + i)} - {option}",
-                "callback_data": f"quiz_{i}"
+                "text":
+                    f"{chr(65 + index)} - {option}",
+
+                "callback_data":
+                    f"answer:{index}"
             }
         ])
 
+    text = (
+        f"📝 {session['subject']}\n\n"
+        f"السؤال {current + 1} "
+        f"/ {len(questions)}\n\n"
+        f"❓ {question['q']}\n\n"
+        "اختر الإجابة:"
+    )
+
     send_message(
         chat_id,
-        f"📝 {user['subject']}\n\n"
-        f"السؤال {index + 1} / {len(questions)}\n\n"
-        f"❓ {question['q']}\n\n"
-        "اختر الإجابة:",
+        text,
         {
             "inline_keyboard": keyboard
         }
@@ -774,69 +562,19 @@ def send_question(chat_id):
 
 
 # =========================================================
-# إنهاء الاختبار
+# معالجة الإجابة
 # =========================================================
 
-def finish_quiz(chat_id):
+def handle_answer(
+    callback
+):
 
-    user = users.get(chat_id)
-
-    if not user:
-        return
-
-    total = len(user["questions"])
-    score = user["score"]
-
-    percentage = round(
-        score / total * 100
+    callback_id = callback.get(
+        "id"
     )
 
-    # حفظ الإحصائيات
-    user["last_score"] = score
-    user["last_total"] = total
-    user["last_percentage"] = percentage
-
-    if percentage >= 90:
-        level = "🏆 أسطوري"
-
-    elif percentage >= 75:
-        level = "🔥 ممتاز"
-
-    elif percentage >= 60:
-        level = "👏 جيد جدًا"
-
-    elif percentage >= 50:
-        level = "👍 مقبول"
-
-    else:
-        level = "💪 تحتاج إلى مراجعة"
-
-    send_message(
-        chat_id,
-        f"🎉 انتهى الاختبار!\n\n"
-        f"📚 المادة: {user['subject']}\n"
-        f"✅ الإجابات الصحيحة: {score}\n"
-        f"❌ الإجابات الخاطئة: {total - score}\n"
-        f"📊 النتيجة: {percentage}%\n"
-        f"🏅 المستوى: {level}\n"
-        f"🔥 أفضل سلسلة: {user['best_streak']}\n\n"
-        "استمر في التدريب وستتحسن نتيجتك مع الوقت."
-    )
-
-
-# =========================================================
-# معالجة الإجابات
-# =========================================================
-
-def handle_callback(callback):
-
-    callback_id = callback.get("id")
-
-    answer_callback(callback_id)
-
-    data = callback.get(
-        "data",
-        ""
+    answer_callback(
+        callback_id
     )
 
     message = callback.get(
@@ -844,84 +582,120 @@ def handle_callback(callback):
         {}
     )
 
-    chat = message.get(
+    chat_id = message.get(
         "chat",
         {}
+    ).get(
+        "id"
     )
-
-    chat_id = chat.get("id")
 
     message_id = message.get(
         "message_id"
     )
 
-    user = users.get(chat_id)
+    data = callback.get(
+        "data",
+        ""
+    )
 
-    if not user:
+    session = quiz_sessions.get(
+        chat_id
+    )
+
+    if not session:
+        send_message(
+            chat_id,
+            "⚠️ انتهى الاختبار. ابدأ اختبارًا جديدًا."
+        )
         return
 
-    if not data.startswith("quiz_"):
+    if session["answered"]:
+
+        return
+
+    if not data.startswith(
+        "answer:"
+    ):
+
         return
 
     try:
 
         selected = int(
-            data.replace(
-                "quiz_",
-                ""
-            )
+            data.split(":")[1]
         )
 
-    except ValueError:
+    except Exception:
 
         return
 
-    index = user["current"]
+    question = session["questions"][
+        session["current"]
+    ]
 
-    question = user["questions"][index]
+    correct_answer = question[
+        "answer"
+    ]
 
-    correct = question["answer"]
+    session["answered"] = True
 
-    if selected == correct:
+    if selected == correct_answer:
 
-        user["score"] += 1
-        user["streak"] += 1
+        session["quiz_score"] += 1
 
-        user["best_streak"] = max(
-            user["best_streak"],
-            user["streak"]
+        update_student(
+            chat_id,
+            correct=True
         )
 
+        student = get_student(
+            chat_id
+        )
+
+        streak = student[
+            "current_streak"
+        ]
+
         result = (
-            "✅ إجابة صحيحة!\n\n"
-            f"🔥 سلسلة صحيحة: {user['streak']}"
+            "✅ إجابة صحيحة! 🎉\n\n"
+            f"🔥 سلسلة الإجابات الصحيحة: {streak}\n\n"
+            f"💡 الشرح:\n"
+            f"{question['explanation']}\n\n"
+            f"{random.choice(MOTIVATION)}"
         )
 
     else:
 
-        user["streak"] = 0
-
-        correct_text = (
-            question["options"][correct]
+        update_student(
+            chat_id,
+            correct=False
         )
+
+        correct_text = question[
+            "options"
+        ][correct_answer]
 
         result = (
-            "❌ إجابة خاطئة.\n\n"
-            f"✅ الإجابة الصحيحة: {correct_text}"
+            "❌ ليست الإجابة الصحيحة.\n\n"
+            f"✅ الإجابة الصحيحة: "
+            f"{correct_text}\n\n"
+            f"💡 الشرح:\n"
+            f"{question['explanation']}\n\n"
+            "💪 لا تقلق، الخطأ جزء من التعلم!"
         )
 
-    result += (
-        "\n\n"
-        f"💡 الشرح:\n"
-        f"{question['explanation']}"
+    check_star_upgrade(
+        chat_id
     )
 
     keyboard = {
         "inline_keyboard": [
             [
                 {
-                    "text": "➡️ السؤال التالي",
-                    "callback_data": "next"
+                    "text":
+                        "➡️ السؤال التالي",
+                    "callback_data":
+                        "next_question"
                 }
             ]
         ]
@@ -935,35 +709,151 @@ def handle_callback(callback):
     )
 
 
-    # حفظ أن السؤال تمت الإجابة عليه
-    user["answered"] = True
-
-
 # =========================================================
 # السؤال التالي
 # =========================================================
 
-def handle_next(chat_id):
+def handle_next(
+    chat_id
+):
 
-    user = users.get(chat_id)
+    session = quiz_sessions.get(
+        chat_id
+    )
 
-    if not user:
+    if not session:
         return
 
-    if not user.get("answered"):
+    if not session["answered"]:
         return
 
-    user["current"] += 1
-    user["answered"] = False
+    session["current"] += 1
 
-    send_question(chat_id)
+    session["answered"] = False
+
+    send_question(
+        chat_id
+    )
+
+
+# =========================================================
+# إنهاء الاختبار
+# =========================================================
+
+def finish_quiz(
+    chat_id
+):
+
+    session = quiz_sessions.get(
+        chat_id
+    )
+
+    if not session:
+        return
+
+    total = len(
+        session["questions"]
+    )
+
+    score = session[
+        "quiz_score"
+    ]
+
+    percentage = round(
+        (score / total) * 100
+    ) if total else 0
+
+    student = get_student(
+        chat_id
+    )
+
+    stars = calculate_stars(
+        student["correct"]
+    )
+
+    title = star_title(
+        stars
+    )
+
+    if percentage == 100:
+
+        comment = (
+            "🏆 نتيجة كاملة! مذهل!"
+        )
+
+    elif percentage >= 80:
+
+        comment = (
+            "🔥 نتيجة ممتازة!"
+        )
+
+    elif percentage >= 60:
+
+        comment = (
+            "👏 جيد جدًا، واصل التدريب!"
+        )
+
+    elif percentage >= 50:
+
+        comment = (
+            "💪 بداية جيدة، يمكنك الوصول للأفضل!"
+        )
+
+    else:
+
+        comment = (
+            "🌱 لا تستسلم، راجع الأخطاء وأعد المحاولة!"
+        )
+
+    next_target, next_stars = next_star(
+        student["correct"]
+    )
+
+    if next_target:
+
+        remaining = (
+            next_target -
+            student["correct"]
+        )
+
+        progress = (
+            f"🎯 تبقى لك {remaining} "
+            f"إجابة صحيحة للوصول إلى "
+            f"{'⭐' * next_stars}"
+        )
+
+    else:
+
+        progress = (
+            "👑 وصلت إلى أعلى رتبة!"
+        )
+
+    send_message(
+        chat_id,
+        f"🏁 انتهى الاختبار!\n\n"
+        f"📚 {session['subject']}\n"
+        f"✅ صحيح في هذا الاختبار: {score}/{total}\n"
+        f"📊 النتيجة: {percentage}%\n\n"
+        f"{comment}\n\n"
+        f"🏆 إجمالي إجاباتك الصحيحة: "
+        f"{student['correct']}\n"
+        f"{title}\n\n"
+        f"{progress}\n\n"
+        "🚀 اختبر نفسك مرة أخرى لتصبح أقوى!"
+    )
+
+    del quiz_sessions[
+        chat_id
+    ]
 
 
 # =========================================================
 # الفلاسفة
 # =========================================================
 
-def philosophers(chat_id):
+def philosophers(
+    chat_id
+):
 
     send_message(
         chat_id,
@@ -976,19 +866,21 @@ def philosophers(chat_id):
         "🔥 نيتشه\n"
         "📚 ابن رشد\n"
         "📖 ابن خلدون\n\n"
-        "💡 حاول فهم أفكار الفيلسوف بدل حفظ اسمه فقط."
+        "💡 لا تحفظ الاسم فقط؛ حاول فهم الفكرة والحجة."
     )
 
 
 # =========================================================
-# مفاهيم فلسفية
+# المفاهيم
 # =========================================================
 
-def philosophy_concepts(chat_id):
+def philosophy_concepts(
+    chat_id
+):
 
     send_message(
         chat_id,
-        "💡 مفاهيم مهمة للبكالوريا:\n\n"
+        "💡 مفاهيم فلسفية مهمة:\n\n"
         "🧠 الوعي\n"
         "🔓 الحرية\n"
         "⚖️ الأخلاق\n"
@@ -998,7 +890,7 @@ def philosophy_concepts(chat_id):
         "🗣️ اللغة\n"
         "🎨 الفن\n"
         "🔬 العلم\n\n"
-        "راجع المفهوم، المشكلة، المواقف، والحجج."
+        "🎯 ركّز على المشكلة + المواقف + الحجج."
     )
 
 
@@ -1006,12 +898,15 @@ def philosophy_concepts(chat_id):
 # الكلمات
 # =========================================================
 
-def important_words(chat_id, language):
+def important_words(
+    chat_id,
+    language
+):
 
     words = {
 
-        "🇫🇷 الفرنسية":
-            "🇫🇷 كلمات فرنسية:\n\n"
+        "الفرنسية":
+            "🇫🇷 كلمات مهمة:\n\n"
             "Environnement = البيئة\n"
             "Société = المجتمع\n"
             "Éducation = التربية\n"
@@ -1020,8 +915,8 @@ def important_words(chat_id, language):
             "Problème = مشكلة\n"
             "Solution = حل",
 
-        "🇬🇧 الإنجليزية":
-            "🇬🇧 كلمات إنجليزية:\n\n"
+        "الإنجليزية":
+            "🇬🇧 كلمات مهمة:\n\n"
             "Environment = البيئة\n"
             "Society = المجتمع\n"
             "Education = التعليم\n"
@@ -1030,8 +925,8 @@ def important_words(chat_id, language):
             "Problem = مشكلة\n"
             "Solution = حل",
 
-        "🇪🇸 الإسبانية":
-            "🇪🇸 كلمات إسبانية:\n\n"
+        "الإسبانية":
+            "🇪🇸 كلمات مهمة:\n\n"
             "Educación = التعليم\n"
             "Sociedad = المجتمع\n"
             "Libertad = الحرية\n"
@@ -1044,42 +939,87 @@ def important_words(chat_id, language):
         chat_id,
         words.get(
             language,
-            "لا توجد كلمات حاليًا."
+            "❌ لا توجد كلمات حاليًا."
         )
     )
 
 
 # =========================================================
-# الإحصائيات
+# المستوى
 # =========================================================
 
-def show_stats(chat_id):
+def show_stats(
+    chat_id
+):
 
-    user = users.get(
-        chat_id,
-        {}
+    student = get_student(
+        chat_id
     )
 
-    if "last_score" not in user:
+    correct = student[
+        "correct"
+    ]
 
-        send_message(
-            chat_id,
-            "📊 لا توجد إحصائيات بعد.\n\n"
-            "ابدأ أول اختبار لتظهر نتيجتك."
+    wrong = student[
+        "wrong"
+    ]
+
+    total = student[
+        "total"
+    ]
+
+    stars = calculate_stars(
+        correct
+    )
+
+    title = star_title(
+        stars
+    )
+
+    if total:
+
+        accuracy = round(
+            correct / total * 100
         )
 
-        return
+    else:
+
+        accuracy = 0
+
+    next_target, next_stars = next_star(
+        correct
+    )
+
+    if next_target:
+
+        remaining = (
+            next_target - correct
+        )
+
+        next_text = (
+            f"⭐ الهدف القادم: "
+            f"{'⭐' * next_stars}\n"
+            f"بقيت {remaining} إجابة صحيحة"
+        )
+
+    else:
+
+        next_text = (
+            "👑 وصلت إلى أعلى مستوى!"
+        )
 
     send_message(
         chat_id,
-        f"📊 مستواك الحالي:\n\n"
-        f"📚 المادة: {user.get('subject', '-')}\n"
-        f"✅ صحيح: {user['last_score']}\n"
-        f"❌ خطأ: "
-        f"{user['last_total'] - user['last_score']}\n"
-        f"🏆 النتيجة: {user['last_percentage']}%\n"
+        f"📊 إحصائياتك\n\n"
+        f"🏆 الرتبة: {title}\n\n"
+        f"✅ صحيحة: {correct}\n"
+        f"❌ خاطئة: {wrong}\n"
+        f"📝 مجموع الأسئلة: {total}\n"
+        f"🎯 الدقة: {accuracy}%\n"
         f"🔥 أفضل سلسلة: "
-        f"{user.get('best_streak', 0)}"
+        f"{student['best_streak']}\n\n"
+        f"{next_text}\n\n"
+        "🚀 استمر، كل سؤال يرفع مستواك!"
     )
 
 
@@ -1087,49 +1027,77 @@ def show_stats(chat_id):
 # الإنجازات
 # =========================================================
 
-def achievements(chat_id):
+def achievements(
+    chat_id
+):
 
-    user = users.get(
-        chat_id,
-        {}
+    student = get_student(
+        chat_id
     )
 
-    percentage = user.get(
-        "last_percentage",
-        0
+    correct = student[
+        "correct"
+    ]
+
+    stars = calculate_stars(
+        correct
     )
 
-    streak = user.get(
-        "best_streak",
-        0
-    )
+    achievements_list = []
 
-    badges = []
+    if correct >= 1:
+        achievements_list.append(
+            "✅ أول إجابة صحيحة"
+        )
 
-    if percentage >= 50:
-        badges.append("🎯 أول نجاح")
+    if correct >= 30:
+        achievements_list.append(
+            "⭐ طالب طموح"
+        )
 
-    if percentage >= 80:
-        badges.append("🔥 متفوق")
+    if correct >= 60:
+        achievements_list.append(
+            "⭐⭐ طالب مجتهد"
+        )
 
-    if percentage >= 90:
-        badges.append("🏆 عبقري")
+    if correct >= 100:
+        achievements_list.append(
+            "⭐⭐⭐ طالب متفوق"
+        )
 
-    if streak >= 3:
-        badges.append("⚡ سلسلة 3")
+    if correct >= 150:
+        achievements_list.append(
+            "⭐⭐⭐⭐ طالب متميز"
+        )
 
-    if streak >= 5:
-        badges.append("🚀 سلسلة 5")
+    if correct >= 200:
+        achievements_list.append(
+            "⭐⭐⭐⭐⭐ طالب قوي وذكي"
+        )
 
-    if not badges:
-        badges.append(
-            "🔒 لم تحصل على شارة بعد"
+    if student["best_streak"] >= 5:
+        achievements_list.append(
+            "🔥 سلسلة 5 إجابات صحيحة"
+        )
+
+    if student["best_streak"] >= 10:
+        achievements_list.append(
+            "⚡ سلسلة 10 إجابات صحيحة"
+        )
+
+    if not achievements_list:
+
+        achievements_list.append(
+            "🔒 ابدأ الاختبارات لفتح إنجازاتك."
         )
 
     send_message(
         chat_id,
-        "🏆 إنجازاتك:\n\n" +
-        "\n".join(badges)
+        "🏆 إنجازاتك\n\n"
+        + "\n".join(
+            achievements_list
+        )
+        + f"\n\n⭐ مجموع النجوم: {stars}"
     )
 
 
@@ -1137,7 +1105,9 @@ def achievements(chat_id):
 # مواضيع البكالوريا
 # =========================================================
 
-def bac_topics(chat_id):
+def bac_topics(
+    chat_id
+):
 
     send_message(
         chat_id,
@@ -1151,7 +1121,10 @@ def bac_topics(chat_id):
 # Flask
 # =========================================================
 
-@app.route("/", methods=["GET"])
+@app.route(
+    "/",
+    methods=["GET"]
+)
 def home():
 
     return "🎓 BacMind DZ is running!"
@@ -1167,7 +1140,10 @@ def webhook():
         silent=True
     ) or {}
 
+    # =====================================================
     # Callback
+    # =====================================================
+
     callback = data.get(
         "callback_query"
     )
@@ -1184,16 +1160,14 @@ def webhook():
             {}
         )
 
-        chat = message.get(
+        chat_id = message.get(
             "chat",
             {}
-        )
-
-        chat_id = chat.get(
+        ).get(
             "id"
         )
 
-        if callback_data == "next":
+        if callback_data == "next_question":
 
             answer_callback(
                 callback.get("id")
@@ -1203,27 +1177,30 @@ def webhook():
                 chat_id
             )
 
-        else:
+        elif callback_data.startswith(
+            "answer:"
+        ):
 
-            handle_callback(
+            handle_answer(
                 callback
             )
 
         return "OK"
 
 
+    # =====================================================
     # Message
+    # =====================================================
+
     message = data.get(
         "message",
         {}
     )
 
-    chat = message.get(
+    chat_id = message.get(
         "chat",
         {}
-    )
-
-    chat_id = chat.get(
+    ).get(
         "id"
     )
 
@@ -1233,7 +1210,13 @@ def webhook():
     ).strip()
 
     if not chat_id:
+
         return "OK"
+
+
+    ensure_student(
+        chat_id
+    )
 
 
     # =====================================================
@@ -1242,18 +1225,15 @@ def webhook():
 
     if text == "/start":
 
-        users[chat_id] = {
-            "step": "main"
-        }
-
         send_message(
             chat_id,
             "🎓 مرحبًا بك في BacMind DZ 🇩🇿\n\n"
-            "البوت المتخصص في:\n"
-            "🧠 آداب وفلسفة\n"
+            "🧠 منصة تدريب مخصصة لطلاب:\n"
+            "📚 آداب وفلسفة\n"
             "🌍 لغات أجنبية\n\n"
-            "تدرّب، اختبر نفسك، وطوّر مستواك.\n\n"
-            "🚀 هدفنا: أن تدخل البكالوريا بثقة.",
+            "اختبر نفسك، تابع مستواك، واجمع النجوم ⭐\n\n"
+            "🎯 هدفنا أن تدخل البكالوريا بثقة.\n\n"
+            "🚀 مستعد للانطلاق؟",
             main_keyboard()
         )
 
@@ -1261,7 +1241,7 @@ def webhook():
 
 
     # =====================================================
-    # فلسفة
+    # الفلسفة
     # =====================================================
 
     if text == "🧠 الفلسفة":
@@ -1318,36 +1298,11 @@ def webhook():
         return "OK"
 
 
-    if text == "📝 اختبار اللغة":
-
-        # نحدد اللغة من آخر اختيار
-        # إذا لم تكن محفوظة، نستخدم الفرنسية
-        subject = users.get(
-            chat_id,
-            {}
-        ).get(
-            "language",
-            "الفرنسية"
-        )
-
-        start_quiz(
-            chat_id,
-            subject
-        )
-
-        return "OK"
-
-
     # =====================================================
     # الإنجليزية
     # =====================================================
 
     if text == "🇬🇧 الإنجليزية":
-
-        users[chat_id] = {
-            "step": "language",
-            "language": "الإنجليزية"
-        }
 
         send_message(
             chat_id,
@@ -1364,11 +1319,6 @@ def webhook():
 
     if text == "🇪🇸 الإسبانية":
 
-        users[chat_id] = {
-            "step": "language",
-            "language": "الإسبانية"
-        }
-
         send_message(
             chat_id,
             "🇪🇸 قسم الإسبانية:",
@@ -1379,49 +1329,73 @@ def webhook():
 
 
     # =====================================================
-    # اختبار فرنسي
+    # اختبار اللغة
     # =====================================================
 
-    if text == "🇫🇷 اختبار فرنسي":
+    if text == "📝 اختبار اللغة":
 
-        start_quiz(
+        # نستخدم آخر لغة اختارها الطالب.
+        # الافتراضي: الفرنسية.
+
+        # نحفظ اللغة مؤقتًا في الجلسة البسيطة.
+        # إذا لم تكن موجودة نبدأ بالفرنسية.
+
+        subject = "الفرنسية"
+
+        # يمكن للطالب بدء اختبار اللغة من قسم الفرنسية
+        # أو الإنجليزية أو الإسبانية.
+        #
+        # لتجنب فقدان الاختيار، نرسل له قائمة صغيرة.
+
+        keyboard = {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": "🇫🇷 الفرنسية",
+                        "callback_data": "language:الفرنسية"
+                    }
+                ],
+                [
+                    {
+                        "text": "🇬🇧 الإنجليزية",
+                        "callback_data": "language:الإنجليزية"
+                    }
+                ],
+                [
+                    {
+                        "text": "🇪🇸 الإسبانية",
+                        "callback_data": "language:الإسبانية"
+                    }
+                ]
+            ]
+        }
+
+        send_message(
             chat_id,
-            "الفرنسية"
+            "🌍 اختر اللغة التي تريد اختبار نفسك فيها:",
+            keyboard
         )
 
         return "OK"
 
 
     # =====================================================
-    # كلمات
+    # الكلمات
     # =====================================================
 
     if text == "📚 كلمات مهمة":
 
-        language = users.get(
+        send_message(
             chat_id,
-            {}
-        ).get(
-            "language",
-            "الفرنسية"
-        )
-
-        important_words(
-            chat_id,
-            "🇫🇷 الفرنسية"
-            if language == "الفرنسية"
-            else
-            "🇬🇧 الإنجليزية"
-            if language == "الإنجليزية"
-            else
-            "🇪🇸 الإسبانية"
+            "📚 اختر اللغة من القائمة الرئيسية أولًا، "
+            "ثم اضغط كلمات مهمة."
         )
 
         return "OK"
 
 
     # =====================================================
-    # مواضيع
+    # مواضيع البكالوريا
     # =====================================================
 
     if text == "📄 مواضيع البكالوريا":
@@ -1437,8 +1411,9 @@ def webhook():
 
         send_message(
             chat_id,
-            "📚 مواضيع شعبة آداب وفلسفة:\n\n"
-            "سنضيف هنا المواضيع حسب السنوات والمادة."
+            "📚 آداب وفلسفة\n\n"
+            "سيتم تخصيص هذا القسم لاحقًا "
+            "للمواضيع حسب السنوات والمواد."
         )
 
         return "OK"
@@ -1448,15 +1423,16 @@ def webhook():
 
         send_message(
             chat_id,
-            "🌍 مواضيع شعبة لغات أجنبية:\n\n"
-            "سنضيف هنا المواضيع حسب اللغة والسنة."
+            "🌍 لغات أجنبية\n\n"
+            "سيتم تخصيص هذا القسم لاحقًا "
+            "للمواضيع حسب السنوات واللغات."
         )
 
         return "OK"
 
 
     # =====================================================
-    # الإحصائيات
+    # المستوى
     # =====================================================
 
     if text == "📊 مستواي":
@@ -1467,6 +1443,10 @@ def webhook():
 
         return "OK"
 
+
+    # =====================================================
+    # الإنجازات
+    # =====================================================
 
     if text == "🏆 الإنجازات":
 
@@ -1485,27 +1465,29 @@ def webhook():
 
         send_message(
             chat_id,
-            "ℹ️ كيف تستخدم BacMind DZ؟\n\n"
+            "ℹ️ طريقة استخدام BacMind DZ:\n\n"
             "1️⃣ اختر المادة.\n"
             "2️⃣ ابدأ الاختبار.\n"
             "3️⃣ أجب عن الأسئلة.\n"
-            "4️⃣ شاهد الشرح.\n"
-            "5️⃣ تابع نتيجتك ومستواك.\n\n"
-            "🎯 ركّز على الفهم وليس الحفظ فقط."
+            "4️⃣ اقرأ الشرح بعد كل إجابة.\n"
+            "5️⃣ تابع إحصائياتك.\n"
+            "6️⃣ اجمع النجوم ⭐.\n\n"
+            "🎯 30 إجابة صحيحة = ⭐\n"
+            "🎯 60 = ⭐⭐\n"
+            "🎯 100 = ⭐⭐⭐\n"
+            "🎯 150 = ⭐⭐⭐⭐\n"
+            "🎯 200 = ⭐⭐⭐⭐⭐\n\n"
+            "🔥 استمر حتى تصل إلى القمة!"
         )
 
         return "OK"
 
 
     # =====================================================
-    # رجوع
+    # العودة
     # =====================================================
 
     if text == "🔙 القائمة الرئيسية":
-
-        users[chat_id] = {
-            "step": "main"
-        }
 
         send_message(
             chat_id,
@@ -1517,20 +1499,24 @@ def webhook():
 
 
     # =====================================================
-    # افتراضي
+    # رسالة افتراضية
     # =====================================================
 
     send_message(
         chat_id,
-        "اكتب /start لفتح القائمة الرئيسية."
+        "🤔 لم أفهم الأمر.\n\n"
+        "اضغط /start لفتح القائمة الرئيسية."
     )
 
     return "OK"
 
 
 # =========================================================
-# تشغيل
+# تشغيل التطبيق
 # =========================================================
+
+init_db()
+
 
 if __name__ == "__main__":
 

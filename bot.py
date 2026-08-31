@@ -1,17 +1,15 @@
 import os
-import random
-import sqlite3
 import requests
 from flask import Flask, request
 
-from questions import QUESTIONS
+from questions import QUESTIONS, get_random_questions
 
 
 app = Flask(__name__)
 
 
 # =========================================================
-# إعدادات
+# إعدادات البوت
 # =========================================================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -25,261 +23,12 @@ TELEGRAM_API = (
     else ""
 )
 
-DB_FILE = "students.db"
-
 
 # =========================================================
-# قاعدة البيانات
+# بيانات المستخدمين
 # =========================================================
 
-def get_db():
-    conn = sqlite3.connect(
-        DB_FILE,
-        timeout=30
-    )
-
-    conn.row_factory = sqlite3.Row
-
-    return conn
-
-
-def init_db():
-
-    conn = get_db()
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS students (
-            chat_id INTEGER PRIMARY KEY,
-            correct INTEGER DEFAULT 0,
-            wrong INTEGER DEFAULT 0,
-            total INTEGER DEFAULT 0,
-            best_streak INTEGER DEFAULT 0,
-            current_streak INTEGER DEFAULT 0,
-            stars INTEGER DEFAULT 0
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-def ensure_student(chat_id):
-
-    conn = get_db()
-
-    conn.execute("""
-        INSERT OR IGNORE INTO students
-        (chat_id, correct, wrong, total, best_streak, current_streak, stars)
-        VALUES (?, 0, 0, 0, 0, 0, 0)
-    """, (chat_id,))
-
-    conn.commit()
-    conn.close()
-
-
-def get_student(chat_id):
-
-    ensure_student(chat_id)
-
-    conn = get_db()
-
-    row = conn.execute("""
-        SELECT *
-        FROM students
-        WHERE chat_id = ?
-    """, (chat_id,)).fetchone()
-
-    conn.close()
-
-    return row
-
-
-def update_student(
-    chat_id,
-    correct=False
-):
-
-    ensure_student(chat_id)
-
-    conn = get_db()
-
-    if correct:
-
-        conn.execute("""
-            UPDATE students
-            SET
-                correct = correct + 1,
-                total = total + 1,
-                current_streak = current_streak + 1
-            WHERE chat_id = ?
-        """, (chat_id,))
-
-    else:
-
-        conn.execute("""
-            UPDATE students
-            SET
-                wrong = wrong + 1,
-                total = total + 1,
-                current_streak = 0
-            WHERE chat_id = ?
-        """, (chat_id,))
-
-    conn.execute("""
-        UPDATE students
-        SET best_streak =
-            CASE
-                WHEN current_streak > best_streak
-                THEN current_streak
-                ELSE best_streak
-            END
-        WHERE chat_id = ?
-    """, (chat_id,))
-
-    conn.commit()
-    conn.close()
-
-
-# =========================================================
-# نظام النجوم
-# =========================================================
-
-def calculate_stars(correct):
-
-    if correct >= 200:
-        return 5
-
-    if correct >= 150:
-        return 4
-
-    if correct >= 100:
-        return 3
-
-    if correct >= 60:
-        return 2
-
-    if correct >= 30:
-        return 1
-
-    return 0
-
-
-def star_title(stars):
-
-    titles = {
-        0: "🌱 بداية الطريق",
-        1: "⭐ طالب طموح",
-        2: "⭐⭐ طالب مجتهد",
-        3: "⭐⭐⭐ طالب متفوق",
-        4: "⭐⭐⭐⭐ طالب متميز",
-        5: "⭐⭐⭐⭐⭐ طالب قوي وذكي"
-    }
-
-    return titles.get(
-        stars,
-        "🌱 بداية الطريق"
-    )
-
-
-def next_star(correct):
-
-    if correct < 30:
-        return 30, 1
-
-    if correct < 60:
-        return 60, 2
-
-    if correct < 100:
-        return 100, 3
-
-    if correct < 150:
-        return 150, 4
-
-    if correct < 200:
-        return 200, 5
-
-    return None, 5
-
-
-def check_star_upgrade(chat_id):
-
-    student = get_student(chat_id)
-
-    old_stars = student["stars"]
-
-    new_stars = calculate_stars(
-        student["correct"]
-    )
-
-    if new_stars <= old_stars:
-        return
-
-    conn = get_db()
-
-    conn.execute("""
-        UPDATE students
-        SET stars = ?
-        WHERE chat_id = ?
-    """, (
-        new_stars,
-        chat_id
-    ))
-
-    conn.commit()
-    conn.close()
-
-    title = star_title(
-        new_stars
-    )
-
-    messages = {
-        1:
-            "🎉 مبروك!\n\n"
-            "لقد وصلت إلى أول نجمة! ⭐\n"
-            "أنت الآن: طالب طموح.\n\n"
-            "🔥 البداية ممتازة، لا تتوقف!",
-
-        2:
-            "🎉 إنجاز رائع!\n\n"
-            "⭐⭐ حصلت على نجمتين!\n"
-            "أنت الآن: طالب مجتهد.\n\n"
-            "🚀 واصل، النجمة الثالثة تنتظرك!",
-
-        3:
-            "🏆 مذهل!\n\n"
-            "⭐⭐⭐ حصلت على ثلاث نجوم!\n"
-            "أنت الآن: طالب متفوق.\n\n"
-            "🧠 مستواك يرتفع، استمر!",
-
-        4:
-            "🔥 رائع جدًا!\n\n"
-            "⭐⭐⭐⭐ وصلت إلى أربع نجوم!\n"
-            "أنت الآن: طالب متميز.\n\n"
-            "🎯 لم يبقَ إلا النجمة الخامسة!",
-
-        5:
-            "🏆🔥 إنجاز استثنائي!\n\n"
-            "⭐⭐⭐⭐⭐\n"
-            "أنت الآن: طالب قوي وذكي!\n\n"
-            "🧠 200 إجابة صحيحة!\n"
-            "لقد أثبتَّ أن الاستمرار يصنع النجاح.\n\n"
-            "🎓 لا تتوقف حتى تحقق هدفك في البكالوريا!"
-    }
-
-    send_message(
-        chat_id,
-        messages.get(
-            new_stars,
-            f"🎉 مبروك!\n{title}"
-        )
-    )
-
-
-# =========================================================
-# حالة الاختبارات
-# =========================================================
-
-quiz_sessions = {}
+users = {}
 
 
 # =========================================================
@@ -300,12 +49,10 @@ def telegram(method, data):
         )
 
         print(
-            f"Telegram {method}: "
-            f"HTTP {response.status_code}"
+            f"Telegram {method}: HTTP {response.status_code}"
         )
 
-        if not response.ok:
-
+        if response.status_code != 200:
             print(
                 "Telegram response:",
                 response.text
@@ -323,11 +70,7 @@ def telegram(method, data):
         return None
 
 
-def send_message(
-    chat_id,
-    text,
-    keyboard=None
-):
+def send_message(chat_id, text, keyboard=None):
 
     data = {
         "chat_id": chat_id,
@@ -433,73 +176,72 @@ def bac_keyboard():
 
 
 # =========================================================
-# رسائل تحفيزية
+# إنشاء / تحديث بيانات المستخدم
 # =========================================================
 
-MOTIVATION = [
-    "🔥 ممتاز! استمر، كل إجابة تقربك من هدفك.",
-    "💪 لا تستسلم! الخطأ اليوم قد يصبح نقطة قوة غدًا.",
-    "🧠 رائع! أنت تتعلم مع كل سؤال.",
-    "🚀 استمر! النجاح نتيجة الاستمرارية.",
-    "🎯 ركّز، تقدّمك واضح!",
-    "🏆 بطل! سؤال آخر وقد تتجاوز مستواك السابق.",
-    "📚 المعرفة تتراكم، لا تتوقف.",
-    "🔥 هكذا نريدك! طموح ومستمر."
-]
+def get_user(chat_id):
+
+    if chat_id not in users:
+
+        users[chat_id] = {
+            "step": "main",
+            "language": None,
+            "subject": None,
+            "questions": [],
+            "current": 0,
+            "score": 0,
+            "streak": 0,
+            "best_streak": 0,
+            "answered": False,
+            "total_answered": 0,
+            "correct_answers": 0,
+            "last_percentage": 0,
+            "last_score": 0,
+            "last_total": 0
+        }
+
+    return users[chat_id]
 
 
 # =========================================================
-# بدء الاختبار
+# بدء اختبار
 # =========================================================
 
-def start_quiz(
-    chat_id,
-    subject
-):
+def start_quiz(chat_id, subject):
 
-    questions = QUESTIONS.get(
+    user = get_user(chat_id)
+
+    questions = get_random_questions(
         subject,
-        []
+        10
     )
 
     if not questions:
 
         send_message(
             chat_id,
-            "❌ لا توجد أسئلة لهذه المادة حاليًا."
+            f"❌ لا توجد أسئلة في مادة {subject} حاليًا."
         )
 
         return
 
-    count = min(
-        10,
-        len(questions)
-    )
-
-    selected = random.sample(
-        questions,
-        count
-    )
-
-    quiz_sessions[chat_id] = {
-        "subject": subject,
-        "questions": selected,
-        "current": 0,
-        "quiz_score": 0,
-        "answered": False
-    }
+    user["step"] = "quiz"
+    user["subject"] = subject
+    user["questions"] = questions
+    user["current"] = 0
+    user["score"] = 0
+    user["streak"] = 0
+    user["best_streak"] = 0
+    user["answered"] = False
 
     send_message(
         chat_id,
-        "🚀 بدأ الاختبار!\n\n"
-        f"📚 المادة: {subject}\n"
-        f"📝 عدد الأسئلة: {count}\n\n"
-        "ركز جيدًا، وكل إجابة صحيحة تقربك من النجمة القادمة ⭐"
+        f"🚀 بدأ اختبار {subject}!\n\n"
+        f"عدد الأسئلة: {len(questions)}\n\n"
+        "ركز جيدًا واختر الإجابة الصحيحة.",
     )
 
-    send_question(
-        chat_id
-    )
+    send_question(chat_id)
 
 
 # =========================================================
@@ -508,53 +250,54 @@ def start_quiz(
 
 def send_question(chat_id):
 
-    session = quiz_sessions.get(
-        chat_id
+    user = get_user(chat_id)
+
+    questions = user.get(
+        "questions",
+        []
     )
 
-    if not session:
-        return
+    index = user.get(
+        "current",
+        0
+    )
 
-    current = session["current"]
-    questions = session["questions"]
+    if index >= len(questions):
 
-    if current >= len(questions):
-
-        finish_quiz(
-            chat_id
-        )
+        finish_quiz(chat_id)
 
         return
 
-    question = questions[current]
+    question = questions[index]
 
     keyboard = []
 
-    for index, option in enumerate(
-        question["options"]
+    for i, option in enumerate(
+        question.get("options", [])
     ):
 
         keyboard.append([
             {
-                "text":
-                    f"{chr(65 + index)} - {option}",
-
-                "callback_data":
-                    f"answer:{index}"
+                "text": f"{chr(65 + i)} - {option}",
+                "callback_data": f"quiz_{i}"
             }
         ])
 
-    text = (
-        f"📝 {session['subject']}\n\n"
-        f"السؤال {current + 1} "
-        f"/ {len(questions)}\n\n"
-        f"❓ {question['q']}\n\n"
-        "اختر الإجابة:"
-    )
+    keyboard.append([
+        {
+            "text": "🏠 القائمة الرئيسية",
+            "callback_data": "main"
+        }
+    ])
 
     send_message(
         chat_id,
-        text,
+
+        f"📚 المادة: {user['subject']}\n"
+        f"📝 السؤال {index + 1} / {len(questions)}\n\n"
+        f"❓ {question.get('q', '')}\n\n"
+        "اختر الإجابة:",
+
         {
             "inline_keyboard": keyboard
         }
@@ -565,16 +308,15 @@ def send_question(chat_id):
 # معالجة الإجابة
 # =========================================================
 
-def handle_answer(
-    callback
-):
+def handle_quiz_answer(callback):
 
-    callback_id = callback.get(
-        "id"
-    )
+    callback_id = callback.get("id")
 
-    answer_callback(
-        callback_id
+    answer_callback(callback_id)
+
+    data = callback.get(
+        "data",
+        ""
     )
 
     message = callback.get(
@@ -582,120 +324,131 @@ def handle_answer(
         {}
     )
 
-    chat_id = message.get(
+    chat = message.get(
         "chat",
         {}
-    ).get(
-        "id"
     )
+
+    chat_id = chat.get("id")
 
     message_id = message.get(
         "message_id"
     )
 
-    data = callback.get(
-        "data",
-        ""
-    )
-
-    session = quiz_sessions.get(
-        chat_id
-    )
-
-    if not session:
-        send_message(
-            chat_id,
-            "⚠️ انتهى الاختبار. ابدأ اختبارًا جديدًا."
-        )
+    if not chat_id:
         return
 
-    if session["answered"]:
+    user = get_user(chat_id)
 
+    if user.get("step") != "quiz":
         return
 
-    if not data.startswith(
-        "answer:"
-    ):
+    if user.get("answered"):
+        return
 
+    if not data.startswith("quiz_"):
         return
 
     try:
 
         selected = int(
-            data.split(":")[1]
+            data.replace(
+                "quiz_",
+                ""
+            )
         )
 
-    except Exception:
+    except ValueError:
 
         return
 
-    question = session["questions"][
-        session["current"]
-    ]
+    questions = user.get(
+        "questions",
+        []
+    )
 
-    correct_answer = question[
+    index = user.get(
+        "current",
+        0
+    )
+
+    if index >= len(questions):
+        return
+
+    question = questions[index]
+
+    correct = question.get(
         "answer"
-    ]
+    )
 
-    session["answered"] = True
+    options = question.get(
+        "options",
+        []
+    )
 
-    if selected == correct_answer:
+    if not isinstance(correct, int):
+        return
 
-        session["quiz_score"] += 1
+    if selected < 0 or selected >= len(options):
+        return
 
-        update_student(
-            chat_id,
-            correct=True
-        )
+    user["answered"] = True
 
-        student = get_student(
-            chat_id
-        )
+    user["total_answered"] += 1
 
-        streak = student[
-            "current_streak"
-        ]
+    if selected == correct:
+
+        user["score"] += 1
+        user["correct_answers"] += 1
+        user["streak"] += 1
+
+        if user["streak"] > user["best_streak"]:
+
+            user["best_streak"] = user["streak"]
 
         result = (
-            "✅ إجابة صحيحة! 🎉\n\n"
-            f"🔥 سلسلة الإجابات الصحيحة: {streak}\n\n"
-            f"💡 الشرح:\n"
-            f"{question['explanation']}\n\n"
-            f"{random.choice(MOTIVATION)}"
+            "✅ إجابة صحيحة!\n\n"
+            f"🔥 السلسلة الحالية: "
+            f"{user['streak']}"
         )
 
     else:
 
-        update_student(
-            chat_id,
-            correct=False
-        )
+        user["streak"] = 0
 
-        correct_text = question[
-            "options"
-        ][correct_answer]
+        correct_text = options[correct]
 
         result = (
-            "❌ ليست الإجابة الصحيحة.\n\n"
-            f"✅ الإجابة الصحيحة: "
-            f"{correct_text}\n\n"
-            f"💡 الشرح:\n"
-            f"{question['explanation']}\n\n"
-            "💪 لا تقلق، الخطأ جزء من التعلم!"
+            "❌ إجابة خاطئة.\n\n"
+            f"✅ الإجابة الصحيحة:\n"
+            f"{correct_text}"
         )
 
-    check_star_upgrade(
-        chat_id
+    explanation = question.get(
+        "explanation",
+        ""
     )
+
+    if explanation:
+
+        result += (
+            "\n\n"
+            "💡 الشرح:\n"
+            f"{explanation}"
+        )
 
     keyboard = {
         "inline_keyboard": [
             [
                 {
-                    "text":
-                        "➡️ السؤال التالي",
-                    "callback_data":
-                        "next_question"
+                    "text": "➡️ السؤال التالي",
+                    "callback_data": "next"
+                }
+            ],
+            [
+                {
+                    "text": "🏠 القائمة الرئيسية",
+                    "callback_data": "main"
                 }
             ]
         ]
@@ -713,151 +466,105 @@ def handle_answer(
 # السؤال التالي
 # =========================================================
 
-def handle_next(
-    chat_id
-):
+def handle_next(chat_id):
 
-    session = quiz_sessions.get(
-        chat_id
-    )
+    user = get_user(chat_id)
 
-    if not session:
+    if user.get("step") != "quiz":
         return
 
-    if not session["answered"]:
+    if not user.get("answered"):
         return
 
-    session["current"] += 1
+    user["current"] += 1
+    user["answered"] = False
 
-    session["answered"] = False
-
-    send_question(
-        chat_id
-    )
+    send_question(chat_id)
 
 
 # =========================================================
 # إنهاء الاختبار
 # =========================================================
 
-def finish_quiz(
-    chat_id
-):
+def finish_quiz(chat_id):
 
-    session = quiz_sessions.get(
-        chat_id
+    user = get_user(chat_id)
+
+    questions = user.get(
+        "questions",
+        []
     )
 
-    if not session:
+    total = len(questions)
+    score = user.get(
+        "score",
+        0
+    )
+
+    if total == 0:
         return
 
-    total = len(
-        session["questions"]
-    )
-
-    score = session[
-        "quiz_score"
-    ]
-
     percentage = round(
-        (score / total) * 100
-    ) if total else 0
-
-    student = get_student(
-        chat_id
+        score / total * 100
     )
 
-    stars = calculate_stars(
-        student["correct"]
-    )
+    user["last_score"] = score
+    user["last_total"] = total
+    user["last_percentage"] = percentage
+    user["step"] = "main"
 
-    title = star_title(
-        stars
-    )
+    if percentage >= 90:
 
-    if percentage == 100:
+        level = "🏆 أسطوري"
 
-        comment = (
-            "🏆 نتيجة كاملة! مذهل!"
-        )
+    elif percentage >= 75:
 
-    elif percentage >= 80:
-
-        comment = (
-            "🔥 نتيجة ممتازة!"
-        )
+        level = "🔥 ممتاز"
 
     elif percentage >= 60:
 
-        comment = (
-            "👏 جيد جدًا، واصل التدريب!"
-        )
+        level = "👏 جيد جدًا"
 
     elif percentage >= 50:
 
-        comment = (
-            "💪 بداية جيدة، يمكنك الوصول للأفضل!"
-        )
+        level = "👍 مقبول"
 
     else:
 
-        comment = (
-            "🌱 لا تستسلم، راجع الأخطاء وأعد المحاولة!"
-        )
-
-    next_target, next_stars = next_star(
-        student["correct"]
-    )
-
-    if next_target:
-
-        remaining = (
-            next_target -
-            student["correct"]
-        )
-
-        progress = (
-            f"🎯 تبقى لك {remaining} "
-            f"إجابة صحيحة للوصول إلى "
-            f"{'⭐' * next_stars}"
-        )
-
-    else:
-
-        progress = (
-            "👑 وصلت إلى أعلى رتبة!"
-        )
+        level = "💪 تحتاج إلى مراجعة"
 
     send_message(
         chat_id,
-        f"🏁 انتهى الاختبار!\n\n"
-        f"📚 {session['subject']}\n"
-        f"✅ صحيح في هذا الاختبار: {score}/{total}\n"
-        f"📊 النتيجة: {percentage}%\n\n"
-        f"{comment}\n\n"
-        f"🏆 إجمالي إجاباتك الصحيحة: "
-        f"{student['correct']}\n"
-        f"{title}\n\n"
-        f"{progress}\n\n"
-        "🚀 اختبر نفسك مرة أخرى لتصبح أقوى!"
-    )
 
-    del quiz_sessions[
-        chat_id
-    ]
+        "🎉 انتهى الاختبار!\n\n"
+
+        f"📚 المادة: {user['subject']}\n"
+        f"✅ الصحيح: {score}\n"
+        f"❌ الخطأ: {total - score}\n"
+        f"📊 النتيجة: {percentage}%\n"
+        f"🏅 المستوى: {level}\n"
+        f"🔥 أفضل سلسلة: "
+        f"{user['best_streak']}\n\n"
+
+        "💪 لا تتوقف!\n"
+        "كل سؤال تخطئ فيه اليوم هو فرصة "
+        "لتصبح أقوى غدًا.",
+
+        main_keyboard()
+    )
 
 
 # =========================================================
 # الفلاسفة
 # =========================================================
 
-def philosophers(
-    chat_id
-):
+def philosophers(chat_id):
 
     send_message(
         chat_id,
+
         "👨‍🏫 أهم الفلاسفة:\n\n"
+
         "🏛️ سقراط\n"
         "🏛️ أفلاطون\n"
         "🏛️ أرسطو\n"
@@ -866,21 +573,24 @@ def philosophers(
         "🔥 نيتشه\n"
         "📚 ابن رشد\n"
         "📖 ابن خلدون\n\n"
-        "💡 لا تحفظ الاسم فقط؛ حاول فهم الفكرة والحجة."
+
+        "💡 نصيحة:\n"
+        "لا تحفظ اسم الفيلسوف فقط، "
+        "بل اربطه بالموقف والحجة والمفهوم."
     )
 
 
 # =========================================================
-# المفاهيم
+# المفاهيم الفلسفية
 # =========================================================
 
-def philosophy_concepts(
-    chat_id
-):
+def philosophy_concepts(chat_id):
 
     send_message(
         chat_id,
-        "💡 مفاهيم فلسفية مهمة:\n\n"
+
+        "💡 مفاهيم مهمة للبكالوريا:\n\n"
+
         "🧠 الوعي\n"
         "🔓 الحرية\n"
         "⚖️ الأخلاق\n"
@@ -890,7 +600,14 @@ def philosophy_concepts(
         "🗣️ اللغة\n"
         "🎨 الفن\n"
         "🔬 العلم\n\n"
-        "🎯 ركّز على المشكلة + المواقف + الحجج."
+
+        "🎯 عند مراجعة أي مفهوم حاول دراسة:\n"
+        "1️⃣ التعريف\n"
+        "2️⃣ المشكلة\n"
+        "3️⃣ المواقف\n"
+        "4️⃣ الحجج\n"
+        "5️⃣ النقد\n"
+        "6️⃣ التركيب"
     )
 
 
@@ -898,25 +615,22 @@ def philosophy_concepts(
 # الكلمات
 # =========================================================
 
-def important_words(
-    chat_id,
-    language
-):
+def important_words(chat_id, language):
 
     words = {
 
         "الفرنسية":
-            "🇫🇷 كلمات مهمة:\n\n"
+            "🇫🇷 كلمات فرنسية مهمة:\n\n"
             "Environnement = البيئة\n"
             "Société = المجتمع\n"
-            "Éducation = التربية\n"
+            "Éducation = التعليم\n"
             "Liberté = الحرية\n"
             "Droit = الحق\n"
             "Problème = مشكلة\n"
             "Solution = حل",
 
         "الإنجليزية":
-            "🇬🇧 كلمات مهمة:\n\n"
+            "🇬🇧 كلمات إنجليزية مهمة:\n\n"
             "Environment = البيئة\n"
             "Society = المجتمع\n"
             "Education = التعليم\n"
@@ -926,7 +640,7 @@ def important_words(
             "Solution = حل",
 
         "الإسبانية":
-            "🇪🇸 كلمات مهمة:\n\n"
+            "🇪🇸 كلمات إسبانية مهمة:\n\n"
             "Educación = التعليم\n"
             "Sociedad = المجتمع\n"
             "Libertad = الحرية\n"
@@ -945,81 +659,61 @@ def important_words(
 
 
 # =========================================================
-# المستوى
+# الإحصائيات
 # =========================================================
 
-def show_stats(
-    chat_id
-):
+def show_stats(chat_id):
 
-    student = get_student(
-        chat_id
+    user = get_user(chat_id)
+
+    total_answered = user.get(
+        "total_answered",
+        0
     )
 
-    correct = student[
-        "correct"
-    ]
-
-    wrong = student[
-        "wrong"
-    ]
-
-    total = student[
-        "total"
-    ]
-
-    stars = calculate_stars(
-        correct
+    correct = user.get(
+        "correct_answers",
+        0
     )
 
-    title = star_title(
-        stars
+    if total_answered == 0:
+
+        send_message(
+            chat_id,
+
+            "📊 مستواك\n\n"
+            "لم تجب عن أي سؤال بعد.\n\n"
+            "🚀 ابدأ أول اختبار حتى يبدأ "
+            "البوت في حساب تقدمك."
+        )
+
+        return
+
+    accuracy = round(
+        correct / total_answered * 100
     )
-
-    if total:
-
-        accuracy = round(
-            correct / total * 100
-        )
-
-    else:
-
-        accuracy = 0
-
-    next_target, next_stars = next_star(
-        correct
-    )
-
-    if next_target:
-
-        remaining = (
-            next_target - correct
-        )
-
-        next_text = (
-            f"⭐ الهدف القادم: "
-            f"{'⭐' * next_stars}\n"
-            f"بقيت {remaining} إجابة صحيحة"
-        )
-
-    else:
-
-        next_text = (
-            "👑 وصلت إلى أعلى مستوى!"
-        )
 
     send_message(
         chat_id,
-        f"📊 إحصائياتك\n\n"
-        f"🏆 الرتبة: {title}\n\n"
-        f"✅ صحيحة: {correct}\n"
-        f"❌ خاطئة: {wrong}\n"
-        f"📝 مجموع الأسئلة: {total}\n"
-        f"🎯 الدقة: {accuracy}%\n"
+
+        "📊 إحصائياتك\n\n"
+
+        f"📝 الأسئلة المجاب عنها: "
+        f"{total_answered}\n"
+
+        f"✅ الإجابات الصحيحة: "
+        f"{correct}\n"
+
+        f"🎯 نسبة النجاح: "
+        f"{accuracy}%\n"
+
         f"🔥 أفضل سلسلة: "
-        f"{student['best_streak']}\n\n"
-        f"{next_text}\n\n"
-        "🚀 استمر، كل سؤال يرفع مستواك!"
+        f"{user.get('best_streak', 0)}\n\n"
+
+        f"📚 آخر اختبار: "
+        f"{user.get('last_percentage', 0)}%\n\n"
+
+        "💪 استمر، مستواك يتحسن مع كل سؤال!"
     )
 
 
@@ -1027,77 +721,66 @@ def show_stats(
 # الإنجازات
 # =========================================================
 
-def achievements(
-    chat_id
-):
+def achievements(chat_id):
 
-    student = get_student(
-        chat_id
+    user = get_user(chat_id)
+
+    total = user.get(
+        "total_answered",
+        0
     )
 
-    correct = student[
-        "correct"
-    ]
-
-    stars = calculate_stars(
-        correct
+    correct = user.get(
+        "correct_answers",
+        0
     )
 
-    achievements_list = []
+    streak = user.get(
+        "best_streak",
+        0
+    )
 
-    if correct >= 1:
-        achievements_list.append(
-            "✅ أول إجابة صحيحة"
-        )
+    badges = []
 
-    if correct >= 30:
-        achievements_list.append(
-            "⭐ طالب طموح"
-        )
+    if total >= 10:
+        badges.append("🥉 بدأ طريق النجاح — 10 أسئلة")
 
-    if correct >= 60:
-        achievements_list.append(
-            "⭐⭐ طالب مجتهد"
-        )
+    if total >= 30:
+        badges.append("🌟 طالب طموح — 30 سؤال")
 
-    if correct >= 100:
-        achievements_list.append(
-            "⭐⭐⭐ طالب متفوق"
-        )
+    if total >= 60:
+        badges.append("⭐⭐ طالب مجتهد — 60 سؤال")
 
-    if correct >= 150:
-        achievements_list.append(
-            "⭐⭐⭐⭐ طالب متميز"
-        )
+    if total >= 100:
+        badges.append("⭐⭐⭐ طالب متميز — 100 سؤال")
 
-    if correct >= 200:
-        achievements_list.append(
-            "⭐⭐⭐⭐⭐ طالب قوي وذكي"
-        )
+    if total >= 150:
+        badges.append("⭐⭐⭐⭐ طالب قوي — 150 سؤال")
 
-    if student["best_streak"] >= 5:
-        achievements_list.append(
-            "🔥 سلسلة 5 إجابات صحيحة"
-        )
+    if total >= 200:
+        badges.append("⭐⭐⭐⭐⭐ طالب قوي وذكي — 200 سؤال")
 
-    if student["best_streak"] >= 10:
-        achievements_list.append(
-            "⚡ سلسلة 10 إجابات صحيحة"
-        )
+    if streak >= 5:
+        badges.append("🔥 سلسلة 5 إجابات صحيحة")
 
-    if not achievements_list:
+    if streak >= 10:
+        badges.append("🚀 سلسلة 10 إجابات صحيحة")
 
-        achievements_list.append(
-            "🔒 ابدأ الاختبارات لفتح إنجازاتك."
+    if not badges:
+
+        badges.append(
+            "🔒 لم تحصل على شارة بعد.\n"
+            "أجب عن المزيد من الأسئلة لفتح الإنجازات."
         )
 
     send_message(
         chat_id,
+
         "🏆 إنجازاتك\n\n"
-        + "\n".join(
-            achievements_list
-        )
-        + f"\n\n⭐ مجموع النجوم: {stars}"
+        + "\n".join(badges)
+        + "\n\n"
+        f"📝 مجموع الأسئلة: {total}\n"
+        f"✅ الصحيح: {correct}"
     )
 
 
@@ -1105,15 +788,40 @@ def achievements(
 # مواضيع البكالوريا
 # =========================================================
 
-def bac_topics(
-    chat_id
-):
+def bac_topics(chat_id):
 
     send_message(
         chat_id,
+
         "📄 مواضيع البكالوريا\n\n"
         "اختر شعبتك:",
+
         bac_keyboard()
+    )
+
+
+# =========================================================
+# المساعدة
+# =========================================================
+
+def help_message(chat_id):
+
+    send_message(
+        chat_id,
+
+        "ℹ️ كيف تستخدم BacMind DZ؟\n\n"
+
+        "1️⃣ اختر المادة.\n"
+        "2️⃣ ابدأ الاختبار.\n"
+        "3️⃣ اختر إجابتك.\n"
+        "4️⃣ اقرأ الشرح.\n"
+        "5️⃣ انتقل للسؤال التالي.\n"
+        "6️⃣ راقب مستواك وإنجازاتك.\n\n"
+
+        "🎯 هدفك ليس الإجابة الصحيحة فقط.\n"
+        "هدفك أن تفهم لماذا كانت الإجابة صحيحة.\n\n"
+
+        "🔥 كل سؤال يقربك خطوة من البكالوريا."
     )
 
 
@@ -1121,10 +829,7 @@ def bac_topics(
 # Flask
 # =========================================================
 
-@app.route(
-    "/",
-    methods=["GET"]
-)
+@app.route("/", methods=["GET"])
 def home():
 
     return "🎓 BacMind DZ is running!"
@@ -1141,7 +846,7 @@ def webhook():
     ) or {}
 
     # =====================================================
-    # Callback
+    # Callback Query
     # =====================================================
 
     callback = data.get(
@@ -1160,14 +865,19 @@ def webhook():
             {}
         )
 
-        chat_id = message.get(
+        chat = message.get(
             "chat",
             {}
-        ).get(
+        )
+
+        chat_id = chat.get(
             "id"
         )
 
-        if callback_data == "next_question":
+        if not chat_id:
+            return "OK"
+
+        if callback_data == "next":
 
             answer_callback(
                 callback.get("id")
@@ -1177,11 +887,25 @@ def webhook():
                 chat_id
             )
 
-        elif callback_data.startswith(
-            "answer:"
-        ):
+        elif callback_data == "main":
 
-            handle_answer(
+            answer_callback(
+                callback.get("id")
+            )
+
+            user = get_user(chat_id)
+
+            user["step"] = "main"
+
+            send_message(
+                chat_id,
+                "🏠 القائمة الرئيسية:",
+                main_keyboard()
+            )
+
+        elif callback_data.startswith("quiz_"):
+
+            handle_quiz_answer(
                 callback
             )
 
@@ -1197,10 +921,12 @@ def webhook():
         {}
     )
 
-    chat_id = message.get(
+    chat = message.get(
         "chat",
         {}
-    ).get(
+    )
+
+    chat_id = chat.get(
         "id"
     )
 
@@ -1210,13 +936,10 @@ def webhook():
     ).strip()
 
     if not chat_id:
-
         return "OK"
 
 
-    ensure_student(
-        chat_id
-    )
+    user = get_user(chat_id)
 
 
     # =====================================================
@@ -1225,15 +948,37 @@ def webhook():
 
     if text == "/start":
 
+        users[chat_id] = {
+            "step": "main",
+            "language": None,
+            "subject": None,
+            "questions": [],
+            "current": 0,
+            "score": 0,
+            "streak": 0,
+            "best_streak": 0,
+            "answered": False,
+            "total_answered": 0,
+            "correct_answers": 0,
+            "last_percentage": 0,
+            "last_score": 0,
+            "last_total": 0
+        }
+
         send_message(
             chat_id,
-            "🎓 مرحبًا بك في BacMind DZ 🇩🇿\n\n"
-            "🧠 منصة تدريب مخصصة لطلاب:\n"
+
+            "🎓 أهلاً بك في BacMind DZ 🇩🇿\n\n"
+
+            "🧠 البوت المخصص لطلاب:\n"
             "📚 آداب وفلسفة\n"
             "🌍 لغات أجنبية\n\n"
-            "اختبر نفسك، تابع مستواك، واجمع النجوم ⭐\n\n"
-            "🎯 هدفنا أن تدخل البكالوريا بثقة.\n\n"
-            "🚀 مستعد للانطلاق؟",
+
+            "🚀 اختبر نفسك.\n"
+            "💡 افهم أخطاءك.\n"
+            "🏆 اجمع إنجازاتك.\n"
+            "🔥 وطوّر مستواك يومًا بعد يوم.",
+
             main_keyboard()
         )
 
@@ -1245,6 +990,8 @@ def webhook():
     # =====================================================
 
     if text == "🧠 الفلسفة":
+
+        user["step"] = "philosophy"
 
         send_message(
             chat_id,
@@ -1289,6 +1036,9 @@ def webhook():
 
     if text == "🇫🇷 الفرنسية":
 
+        user["language"] = "الفرنسية"
+        user["step"] = "language"
+
         send_message(
             chat_id,
             "🇫🇷 قسم الفرنسية:",
@@ -1303,6 +1053,9 @@ def webhook():
     # =====================================================
 
     if text == "🇬🇧 الإنجليزية":
+
+        user["language"] = "الإنجليزية"
+        user["step"] = "language"
 
         send_message(
             chat_id,
@@ -1319,6 +1072,9 @@ def webhook():
 
     if text == "🇪🇸 الإسبانية":
 
+        user["language"] = "الإسبانية"
+        user["step"] = "language"
+
         send_message(
             chat_id,
             "🇪🇸 قسم الإسبانية:",
@@ -1334,46 +1090,22 @@ def webhook():
 
     if text == "📝 اختبار اللغة":
 
-        # نستخدم آخر لغة اختارها الطالب.
-        # الافتراضي: الفرنسية.
+        language = user.get(
+            "language"
+        )
 
-        # نحفظ اللغة مؤقتًا في الجلسة البسيطة.
-        # إذا لم تكن موجودة نبدأ بالفرنسية.
+        if language not in QUESTIONS:
 
-        subject = "الفرنسية"
+            send_message(
+                chat_id,
+                "❌ اختر اللغة أولاً من القائمة الرئيسية."
+            )
 
-        # يمكن للطالب بدء اختبار اللغة من قسم الفرنسية
-        # أو الإنجليزية أو الإسبانية.
-        #
-        # لتجنب فقدان الاختيار، نرسل له قائمة صغيرة.
+            return "OK"
 
-        keyboard = {
-            "inline_keyboard": [
-                [
-                    {
-                        "text": "🇫🇷 الفرنسية",
-                        "callback_data": "language:الفرنسية"
-                    }
-                ],
-                [
-                    {
-                        "text": "🇬🇧 الإنجليزية",
-                        "callback_data": "language:الإنجليزية"
-                    }
-                ],
-                [
-                    {
-                        "text": "🇪🇸 الإسبانية",
-                        "callback_data": "language:الإسبانية"
-                    }
-                ]
-            ]
-        }
-
-        send_message(
+        start_quiz(
             chat_id,
-            "🌍 اختر اللغة التي تريد اختبار نفسك فيها:",
-            keyboard
+            language
         )
 
         return "OK"
@@ -1385,10 +1117,22 @@ def webhook():
 
     if text == "📚 كلمات مهمة":
 
-        send_message(
+        language = user.get(
+            "language"
+        )
+
+        if not language:
+
+            send_message(
+                chat_id,
+                "❌ اختر اللغة أولاً."
+            )
+
+            return "OK"
+
+        important_words(
             chat_id,
-            "📚 اختر اللغة من القائمة الرئيسية أولًا، "
-            "ثم اضغط كلمات مهمة."
+            language
         )
 
         return "OK"
@@ -1411,9 +1155,11 @@ def webhook():
 
         send_message(
             chat_id,
-            "📚 آداب وفلسفة\n\n"
-            "سيتم تخصيص هذا القسم لاحقًا "
-            "للمواضيع حسب السنوات والمواد."
+
+            "📚 شعبة آداب وفلسفة\n\n"
+
+            "📄 قسم المواضيع سيتم ربطه لاحقًا "
+            "بقاعدة مواضيع البكالوريا حسب السنة والمادة."
         )
 
         return "OK"
@@ -1423,16 +1169,18 @@ def webhook():
 
         send_message(
             chat_id,
-            "🌍 لغات أجنبية\n\n"
-            "سيتم تخصيص هذا القسم لاحقًا "
-            "للمواضيع حسب السنوات واللغات."
+
+            "🌍 شعبة لغات أجنبية\n\n"
+
+            "📄 قسم المواضيع سيتم ربطه لاحقًا "
+            "بقاعدة مواضيع البكالوريا حسب السنة واللغة."
         )
 
         return "OK"
 
 
     # =====================================================
-    # المستوى
+    # الإحصائيات
     # =====================================================
 
     if text == "📊 مستواي":
@@ -1463,31 +1211,20 @@ def webhook():
 
     if text == "ℹ️ المساعدة":
 
-        send_message(
-            chat_id,
-            "ℹ️ طريقة استخدام BacMind DZ:\n\n"
-            "1️⃣ اختر المادة.\n"
-            "2️⃣ ابدأ الاختبار.\n"
-            "3️⃣ أجب عن الأسئلة.\n"
-            "4️⃣ اقرأ الشرح بعد كل إجابة.\n"
-            "5️⃣ تابع إحصائياتك.\n"
-            "6️⃣ اجمع النجوم ⭐.\n\n"
-            "🎯 30 إجابة صحيحة = ⭐\n"
-            "🎯 60 = ⭐⭐\n"
-            "🎯 100 = ⭐⭐⭐\n"
-            "🎯 150 = ⭐⭐⭐⭐\n"
-            "🎯 200 = ⭐⭐⭐⭐⭐\n\n"
-            "🔥 استمر حتى تصل إلى القمة!"
+        help_message(
+            chat_id
         )
 
         return "OK"
 
 
     # =====================================================
-    # العودة
+    # القائمة الرئيسية
     # =====================================================
 
     if text == "🔙 القائمة الرئيسية":
+
+        user["step"] = "main"
 
         send_message(
             chat_id,
@@ -1504,7 +1241,7 @@ def webhook():
 
     send_message(
         chat_id,
-        "🤔 لم أفهم الأمر.\n\n"
+        "❓ لم أفهم الأمر.\n\n"
         "اضغط /start لفتح القائمة الرئيسية."
     )
 
@@ -1514,9 +1251,6 @@ def webhook():
 # =========================================================
 # تشغيل التطبيق
 # =========================================================
-
-init_db()
-
 
 if __name__ == "__main__":
 

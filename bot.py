@@ -39,6 +39,7 @@ ACTIVATION_CODES = {
     "BAC-DZ-C3": False,
     "BAC-DZ-D4": False,
     "BAC-DZ-E5": False,
+    "AzzouGouizi":False,
 
     # يمكنك إضافة المزيد:
     # "AHMED2026": False,

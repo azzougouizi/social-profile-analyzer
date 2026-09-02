@@ -1,4 +1,5 @@
 import os
+import json
 import random
 import requests
 from flask import Flask, request
@@ -6,7 +7,7 @@ from flask import Flask, request
 app = Flask(__name__)
 
 # =========================================================
-# إعدادات Telegram
+# ⚙️ إعدادات البوت
 # =========================================================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -14,29 +15,122 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
     print("⚠️ BOT_TOKEN غير موجود")
 
-TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+TELEGRAM_API = (
+    f"https://api.telegram.org/bot{BOT_TOKEN}"
+    if BOT_TOKEN
+    else ""
+)
 
-# تخزين بيانات الطلاب مؤقتًا
-users = {}
+DATA_FILE = "data.json"
 
 
 # =========================================================
-# بنك الأسئلة — آداب وفلسفة
+# 🔐 أكواد تفعيل الطلاب
+#
+# أضف أكواد الطلاب هنا
+#
+# False = الكود لم يُستعمل
+# =========================================================
+
+ACTIVATION_CODES = {
+
+    "BAC-DZ-A1": False,
+    "BAC-DZ-B2": False,
+    "BAC-DZ-C3": False,
+    "BAC-DZ-D4": False,
+    "BAC-DZ-E5": False,
+
+    # يمكنك إضافة المزيد:
+    # "AHMED2026": False,
+    # "STUDENT001": False,
+}
+
+
+# =========================================================
+# 💾 تحميل وحفظ البيانات
+# =========================================================
+
+def load_data():
+
+    if not os.path.exists(DATA_FILE):
+
+        return {
+            "users": {},
+            "codes": ACTIVATION_CODES.copy()
+        }
+
+    try:
+
+        with open(DATA_FILE, "r", encoding="utf-8") as file:
+
+            data = json.load(file)
+
+            # إضافة الأكواد الجديدة الموجودة في bot.py
+            for code, used in ACTIVATION_CODES.items():
+
+                if code not in data["codes"]:
+
+                    data["codes"][code] = used
+
+            return data
+
+    except Exception:
+
+        return {
+            "users": {},
+            "codes": ACTIVATION_CODES.copy()
+        }
+
+
+database = load_data()
+
+
+def save_data():
+
+    try:
+
+        with open(DATA_FILE, "w", encoding="utf-8") as file:
+
+            json.dump(
+                database,
+                file,
+                ensure_ascii=False,
+                indent=4
+            )
+
+    except Exception as error:
+
+        print("Save Error:", error)
+
+
+save_data()
+
+
+# =========================================================
+# 📚 بنك الأسئلة
+# شعبة آداب وفلسفة
 # =========================================================
 
 QUESTIONS = {
 
+    # -----------------------------------------------------
+    # 🧠 الفلسفة
+    # -----------------------------------------------------
+
     "🧠 الفلسفة": [
+
         {
             "q": "من صاحب المقولة: أنا أفكر إذن أنا موجود؟",
             "options": ["أفلاطون", "ديكارت", "أرسطو", "كانط"],
             "answer": 1
         },
+
         {
             "q": "من صاحب نظرية المثل؟",
             "options": ["أفلاطون", "ديكارت", "نيتشه", "كانط"],
             "answer": 0
         },
+
         {
             "q": "ما المقصود بالمنطق؟",
             "options": [
@@ -47,38 +141,64 @@ QUESTIONS = {
             ],
             "answer": 0
         },
+
         {
             "q": "من الفيلسوف المرتبط بالشك المنهجي؟",
-            "options": ["أرسطو", "ديكارت", "سقراط", "هيغل"],
+            "options": [
+                "أرسطو",
+                "ديكارت",
+                "سقراط",
+                "هيغل"
+            ],
             "answer": 1
         },
+
         {
             "q": "من صاحب كتاب الجمهورية؟",
-            "options": ["أفلاطون", "كانط", "ديكارت", "سقراط"],
+            "options": [
+                "أفلاطون",
+                "كانط",
+                "ديكارت",
+                "سقراط"
+            ],
             "answer": 0
         },
+
         {
             "q": "من قال إن الإنسان حيوان سياسي؟",
-            "options": ["سقراط", "أرسطو", "كانط", "ماركس"],
+            "options": [
+                "سقراط",
+                "أرسطو",
+                "كانط",
+                "ماركس"
+            ],
             "answer": 1
         },
+
         {
             "q": "الفلسفة تعني أساسًا:",
             "options": [
                 "حب الحكمة",
                 "حفظ المعلومات",
-                "دراسة الطبيعة فقط",
-                "دراسة الرياضة"
+                "دراسة الرياضة",
+                "دراسة النباتات"
             ],
             "answer": 0
         },
+
         {
             "q": "من ربط الأخلاق بالواجب؟",
-            "options": ["كانط", "نيتشه", "أفلاطون", "ماركس"],
+            "options": [
+                "كانط",
+                "نيتشه",
+                "أفلاطون",
+                "ماركس"
+            ],
             "answer": 0
         },
+
         {
-            "q": "ما المقصود بالحقيقة في التصور الكلاسيكي؟",
+            "q": "الحقيقة في التصور الكلاسيكي تعني:",
             "options": [
                 "مطابقة الفكر للواقع",
                 "الرأي الشخصي",
@@ -87,6 +207,7 @@ QUESTIONS = {
             ],
             "answer": 0
         },
+
         {
             "q": "ما الهدف من التفكير النقدي؟",
             "options": [
@@ -99,47 +220,101 @@ QUESTIONS = {
         }
     ],
 
+
+    # -----------------------------------------------------
+    # 🇩🇿 اللغة العربية
+    # -----------------------------------------------------
+
     "🇩🇿 اللغة العربية": [
+
         {
             "q": "ما نوع كلمة «كتب»؟",
-            "options": ["فعل ماضٍ", "اسم", "حرف", "فعل أمر"],
+            "options": [
+                "فعل ماضٍ",
+                "اسم",
+                "حرف",
+                "فعل أمر"
+            ],
             "answer": 0
         },
+
         {
             "q": "جمع كلمة «كتاب» هو:",
-            "options": ["كتب", "كاتبات", "مكتوب", "كتابان"],
+            "options": [
+                "كتب",
+                "كاتبات",
+                "كتابان",
+                "مكتوب"
+            ],
             "answer": 0
         },
+
         {
             "q": "الفاعل يكون غالبًا:",
-            "options": ["مرفوعًا", "منصوبًا", "مجرورًا", "مجزومًا"],
+            "options": [
+                "مرفوعًا",
+                "منصوبًا",
+                "مجرورًا",
+                "مجزومًا"
+            ],
             "answer": 0
         },
+
         {
-            "q": "ما ضد كلمة «النجاح»؟",
-            "options": ["الفشل", "التفوق", "العمل", "العلم"],
+            "q": "ما ضد كلمة النجاح؟",
+            "options": [
+                "الفشل",
+                "التفوق",
+                "العلم",
+                "العمل"
+            ],
             "answer": 0
         },
+
         {
             "q": "الجملة الاسمية تبدأ بـ:",
-            "options": ["اسم", "فعل", "حرف جر", "ضمير فقط"],
+            "options": [
+                "اسم",
+                "فعل",
+                "حرف",
+                "فعل أمر"
+            ],
             "answer": 0
         },
+
         {
             "q": "المبتدأ يكون:",
-            "options": ["مرفوعًا", "منصوبًا", "مجرورًا", "مجزومًا"],
+            "options": [
+                "مرفوعًا",
+                "منصوبًا",
+                "مجرورًا",
+                "مجزومًا"
+            ],
             "answer": 0
         },
+
         {
             "q": "الفعل المضارع يدل غالبًا على:",
-            "options": ["الحاضر أو المستقبل", "الماضي فقط", "الأمر فقط", "الاسم"],
+            "options": [
+                "الحاضر أو المستقبل",
+                "الماضي فقط",
+                "الأمر فقط",
+                "الاسم"
+            ],
             "answer": 0
         },
+
         {
             "q": "ما نوع كلمة «في»؟",
-            "options": ["حرف جر", "اسم", "فعل", "صفة"],
+            "options": [
+                "حرف جر",
+                "اسم",
+                "فعل",
+                "صفة"
+            ],
             "answer": 0
         },
+
         {
             "q": "ما المقصود بالبلاغة؟",
             "options": [
@@ -150,107 +325,232 @@ QUESTIONS = {
             ],
             "answer": 0
         },
+
         {
-            "q": "الخبر في الجملة الاسمية يكون:",
-            "options": ["مرفوعًا", "مجزومًا", "مجرورًا دائمًا", "فعل أمر"],
+            "q": "الخبر في الجملة الاسمية يكون غالبًا:",
+            "options": [
+                "مرفوعًا",
+                "مجزومًا",
+                "مجرورًا دائمًا",
+                "فعل أمر"
+            ],
             "answer": 0
         }
     ],
+
+
+    # -----------------------------------------------------
+    # 🇫🇷 الفرنسية
+    # -----------------------------------------------------
 
     "🇫🇷 الفرنسية": [
+
         {
             "q": "Quel est le synonyme de « heureux » ?",
-            "options": ["triste", "content", "fatigué", "malade"],
+            "options": [
+                "triste",
+                "content",
+                "fatigué",
+                "malade"
+            ],
             "answer": 1
         },
+
         {
             "q": "Complétez : Je ___ au lycée.",
-            "options": ["vais", "va", "allez", "allons"],
+            "options": [
+                "vais",
+                "va",
+                "allez",
+                "allons"
+            ],
             "answer": 0
         },
+
         {
             "q": "Le contraire de « difficile » est :",
-            "options": ["facile", "long", "fort", "ancien"],
+            "options": [
+                "facile",
+                "long",
+                "fort",
+                "ancien"
+            ],
             "answer": 0
         },
+
         {
             "q": "Le pluriel de « cheval » est :",
-            "options": ["chevaux", "chevals", "chevales", "chevaus"],
+            "options": [
+                "chevaux",
+                "chevals",
+                "chevales",
+                "chevaus"
+            ],
             "answer": 0
         },
+
         {
             "q": "« J'ai étudié » est au :",
-            "options": ["passé composé", "présent", "futur", "imparfait"],
+            "options": [
+                "passé composé",
+                "présent",
+                "futur",
+                "imparfait"
+            ],
             "answer": 0
         },
+
         {
-            "q": "Nous ___ nos devoirs.",
-            "options": ["faisons", "fait", "faites", "faire"],
+            "q": "Complétez : Nous ___ nos devoirs.",
+            "options": [
+                "faisons",
+                "fait",
+                "faites",
+                "faire"
+            ],
             "answer": 0
         },
+
         {
             "q": "Quel mot est un adjectif ?",
-            "options": ["intelligent", "courir", "maison", "rapidement"],
+            "options": [
+                "intelligent",
+                "courir",
+                "maison",
+                "rapidement"
+            ],
             "answer": 0
         },
+
         {
             "q": "Le féminin de « acteur » est :",
-            "options": ["actrice", "acteuse", "acteurs", "acteur"],
+            "options": [
+                "actrice",
+                "acteuse",
+                "acteur",
+                "acteurs"
+            ],
             "answer": 0
         },
+
         {
-            "q": "Quel est le contraire de « ancien » ?",
-            "options": ["moderne", "vieux", "historique", "passé"],
+            "q": "Le contraire de « ancien » est :",
+            "options": [
+                "moderne",
+                "vieux",
+                "historique",
+                "passé"
+            ],
             "answer": 0
         },
+
         {
             "q": "« Merci » signifie :",
-            "options": ["شكرا", "مرحبا", "وداعًا", "نعم"],
+            "options": [
+                "شكرا",
+                "مرحبا",
+                "وداعًا",
+                "نعم"
+            ],
             "answer": 0
         }
     ],
 
+
+    # -----------------------------------------------------
+    # 🇬🇧 الإنجليزية
+    # -----------------------------------------------------
+
     "🇬🇧 الإنجليزية": [
+
         {
             "q": "She ___ English every day.",
-            "options": ["studies", "study", "studying", "studied"],
+            "options": [
+                "studies",
+                "study",
+                "studying",
+                "studied"
+            ],
             "answer": 0
         },
+
         {
             "q": "What is the past tense of go?",
-            "options": ["went", "goed", "gone", "going"],
+            "options": [
+                "went",
+                "goed",
+                "gone",
+                "going"
+            ],
             "answer": 0
         },
+
         {
             "q": "Choose: I ___ a student.",
-            "options": ["am", "is", "are", "be"],
+            "options": [
+                "am",
+                "is",
+                "are",
+                "be"
+            ],
             "answer": 0
         },
+
         {
             "q": "What is the opposite of easy?",
-            "options": ["hard", "simple", "small", "short"],
+            "options": [
+                "hard",
+                "simple",
+                "small",
+                "short"
+            ],
             "answer": 0
         },
+
         {
             "q": "They ___ playing now.",
-            "options": ["are", "is", "am", "be"],
+            "options": [
+                "are",
+                "is",
+                "am",
+                "be"
+            ],
             "answer": 0
         },
+
         {
             "q": "What does environment mean?",
-            "options": ["البيئة", "الرياضة", "التاريخ", "الاقتصاد"],
+            "options": [
+                "البيئة",
+                "الرياضة",
+                "التاريخ",
+                "الاقتصاد"
+            ],
             "answer": 0
         },
+
         {
             "q": "I have lived here ___ 2020.",
-            "options": ["since", "for", "at", "on"],
+            "options": [
+                "since",
+                "for",
+                "at",
+                "on"
+            ],
             "answer": 0
         },
+
         {
             "q": "The comparative of good is:",
-            "options": ["better", "gooder", "best", "more good"],
+            "options": [
+                "better",
+                "gooder",
+                "best",
+                "more good"
+            ],
             "answer": 0
         },
+
         {
             "q": "Choose the correct sentence:",
             "options": [
@@ -261,9 +561,15 @@ QUESTIONS = {
             ],
             "answer": 0
         },
+
         {
             "q": "The past participle of write is:",
-            "options": ["written", "wrote", "writes", "writing"],
+            "options": [
+                "written",
+                "wrote",
+                "writes",
+                "writing"
+            ],
             "answer": 0
         }
     ]
@@ -271,12 +577,17 @@ QUESTIONS = {
 
 
 # =========================================================
-# Telegram Functions
+# 📱 Telegram Functions
 # =========================================================
 
 def telegram(method, data):
 
+    if not TELEGRAM_API:
+
+        return None
+
     try:
+
         response = requests.post(
             f"{TELEGRAM_API}/{method}",
             json=data,
@@ -286,7 +597,9 @@ def telegram(method, data):
         return response.json()
 
     except Exception as error:
+
         print("Telegram Error:", error)
+
         return None
 
 
@@ -298,6 +611,7 @@ def send_message(chat_id, text, keyboard=None):
     }
 
     if keyboard:
+
         data["reply_markup"] = keyboard
 
     return telegram("sendMessage", data)
@@ -312,6 +626,7 @@ def edit_message(chat_id, message_id, text, keyboard=None):
     }
 
     if keyboard:
+
         data["reply_markup"] = keyboard
 
     return telegram("editMessageText", data)
@@ -321,103 +636,206 @@ def answer_callback(callback_id):
 
     telegram(
         "answerCallbackQuery",
-        {"callback_query_id": callback_id}
+        {
+            "callback_query_id": callback_id
+        }
     )
 
 
 # =========================================================
-# اختيار الشعبة
+# 🎓 قائمة اختيار الشعبة
 # =========================================================
 
 def branch_keyboard():
 
     return {
+
         "keyboard": [
+
             ["🧠 آداب وفلسفة"]
+
         ],
+
         "resize_keyboard": True
     }
 
 
 # =========================================================
-# مواد الشعبة
+# 📚 قائمة المواد
 # =========================================================
 
 def subjects_keyboard(chat_id):
 
-    user = users[chat_id]
+    user = database["users"].get(
+        str(chat_id),
+        {}
+    )
+
+    completed = user.get(
+        "completed_subjects",
+        {}
+    )
 
     buttons = []
 
-    for subject in QUESTIONS.keys():
+    for subject in QUESTIONS:
 
-        buttons.append([subject])
+        if subject in completed:
 
-    # يظهر فقط إذا أجاب الطالب عن جميع المواد
-    completed = user.get("completed_subjects", {})
+            buttons.append([
+                f"✅ {subject}"
+            ])
 
+        else:
+
+            buttons.append([
+                subject
+            ])
+
+    # يظهر زر المعدل بعد إنهاء جميع المواد
     if len(completed) == len(QUESTIONS):
 
-        buttons.append(["📊 أظهر لي معدلي"])
+        buttons.append([
+            "📊 أظهر لي معدلي"
+        ])
 
-    buttons.append(["🔄 إعادة الاختبارات"])
+    buttons.append([
+        "🔄 إعادة الاختبارات"
+    ])
 
     return {
+
         "keyboard": buttons,
+
         "resize_keyboard": True
     }
 
 
 # =========================================================
-# بدء اختبار المادة
+# 🔐 تفعيل الحساب
+# =========================================================
+
+def activate_account(chat_id, code):
+
+    code = code.strip().upper()
+
+    user_id = str(chat_id)
+
+    codes = database["codes"]
+
+    # الكود غير موجود
+    if code not in codes:
+
+        send_message(
+            chat_id,
+            "❌ كود التفعيل غير صحيح.\n\n"
+            "🔐 حاول مرة أخرى."
+        )
+
+        return
+
+    # الكود مستعمل
+    if codes[code]:
+
+        send_message(
+            chat_id,
+            "❌ هذا الكود تم استعماله مسبقًا."
+        )
+
+        return
+
+    # تفعيل الكود
+    codes[code] = True
+
+    database["users"][user_id] = {
+
+        "activated": True,
+
+        "activation_code": code,
+
+        "branch": None,
+
+        "completed_subjects": {}
+    }
+
+    save_data()
+
+    send_message(
+        chat_id,
+        "━━━━━━━━━━━━━━━━━━\n"
+        "✅ تم تفعيل حسابك بنجاح!\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "🎓 مرحبًا بك في BacMind DZ 🇩🇿\n\n"
+        "📝 أجب عن 10 أسئلة في كل مادة.\n"
+        "📊 وبعدها اكتشف معدلك.\n\n"
+        "👇 اختر شعبتك:",
+        branch_keyboard()
+    )
+
+
+# =========================================================
+# 📝 بدء اختبار مادة
 # =========================================================
 
 def start_subject(chat_id, subject):
 
-    user = users.setdefault(chat_id, {})
+    user = database["users"][str(chat_id)]
 
-    if subject in user.get("completed_subjects", {}):
+    completed = user.get(
+        "completed_subjects",
+        {}
+    )
+
+    if subject in completed:
 
         send_message(
             chat_id,
-            f"✅ لقد أكملت اختبار {subject} سابقًا.\n\n"
-            "يمكنك إكمال المواد الأخرى أو حساب معدلك.",
-            subjects_keyboard(chat_id)
+            "✅ لقد أكملت هذه المادة بالفعل."
         )
+
         return
 
-    questions = QUESTIONS[subject]
-
-    # اختيار 10 أسئلة
     selected = random.sample(
-        questions,
-        min(10, len(questions))
+        QUESTIONS[subject],
+        min(10, len(QUESTIONS[subject]))
     )
 
     user["quiz"] = {
+
         "subject": subject,
+
         "questions": selected,
+
         "current": 0,
+
         "score": 0
     }
+
+    save_data()
 
     send_question(chat_id)
 
 
 # =========================================================
-# إرسال السؤال
+# ❓ إرسال السؤال
 # =========================================================
 
 def send_question(chat_id):
 
-    user = users[chat_id]
-    quiz = user["quiz"]
+    user = database["users"][str(chat_id)]
+
+    quiz = user.get("quiz")
+
+    if not quiz:
+
+        return
 
     index = quiz["current"]
 
     if index >= len(quiz["questions"]):
 
         finish_subject(chat_id)
+
         return
 
     question = quiz["questions"][index]
@@ -427,10 +845,12 @@ def send_question(chat_id):
     for i, option in enumerate(question["options"]):
 
         keyboard.append([
+
             {
                 "text": f"{chr(65 + i)} - {option}",
                 "callback_data": f"answer_{i}"
             }
+
         ])
 
     send_message(
@@ -438,6 +858,7 @@ def send_question(chat_id):
         f"🎓 {quiz['subject']}\n\n"
         f"📝 السؤال {index + 1}/10\n\n"
         f"❓ {question['q']}",
+
         {
             "inline_keyboard": keyboard
         }
@@ -445,7 +866,7 @@ def send_question(chat_id):
 
 
 # =========================================================
-# معالجة الإجابة
+# ✅ معالجة الإجابة
 # =========================================================
 
 def handle_answer(callback):
@@ -454,18 +875,30 @@ def handle_answer(callback):
 
     answer_callback(callback["id"])
 
-    user = users.get(chat_id)
-
-    if not user or "quiz" not in user:
-        return
-
-    quiz = user["quiz"]
-
-    selected = int(
-        callback["data"].replace("answer_", "")
+    user = database["users"].get(
+        str(chat_id)
     )
 
-    question = quiz["questions"][quiz["current"]]
+    if not user:
+
+        return
+
+    quiz = user.get("quiz")
+
+    if not quiz:
+
+        return
+
+    selected = int(
+        callback["data"].replace(
+            "answer_",
+            ""
+        )
+    )
+
+    question = quiz["questions"][
+        quiz["current"]
+    ]
 
     correct = question["answer"]
 
@@ -473,39 +906,50 @@ def handle_answer(callback):
 
         quiz["score"] += 1
 
-        result = "✅ إجابة صحيحة!"
+        result = "✅ إجابة صحيحة! 🎉"
 
     else:
 
         result = (
             "❌ إجابة خاطئة!\n\n"
-            f"✅ الإجابة الصحيحة: "
+            "✅ الإجابة الصحيحة:\n"
             f"{question['options'][correct]}"
         )
 
     quiz["current"] += 1
 
+    save_data()
+
     keyboard = {
+
         "inline_keyboard": [
+
             [
+
                 {
                     "text": "➡️ السؤال التالي",
                     "callback_data": "next"
                 }
+
             ]
+
         ]
+
     }
 
     edit_message(
         chat_id,
+
         callback["message"]["message_id"],
+
         result,
+
         keyboard
     )
 
 
 # =========================================================
-# السؤال التالي
+# ➡️ السؤال التالي
 # =========================================================
 
 def next_question(callback):
@@ -518,19 +962,20 @@ def next_question(callback):
 
 
 # =========================================================
-# إنهاء اختبار المادة
+# 🎉 إنهاء اختبار المادة
 # =========================================================
 
 def finish_subject(chat_id):
 
-    user = users[chat_id]
+    user = database["users"][str(chat_id)]
+
     quiz = user["quiz"]
 
     subject = quiz["subject"]
 
     score = quiz["score"]
 
-    # تحويل النتيجة إلى معدل /20
+    # كل إجابة صحيحة = نقطتان
     grade = score * 2
 
     user.setdefault(
@@ -540,25 +985,36 @@ def finish_subject(chat_id):
 
     user["completed_subjects"][subject] = grade
 
-    del user["quiz"]
+    user.pop("quiz", None)
+
+    save_data()
 
     send_message(
         chat_id,
-        f"🎉 انتهيت من اختبار {subject}!\n\n"
-        f"✅ الإجابات الصحيحة: {score}/10\n"
-        f"📊 معدلك في المادة: {grade}/20\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🎉 انتهيت من {subject}\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"✅ الصحيح: {score}/10\n"
+        f"📊 معدلك: {grade}/20\n\n"
         "📚 اختر المادة التالية 👇",
+
         subjects_keyboard(chat_id)
     )
 
 
 # =========================================================
-# حساب المعدل العام
+# 📊 إظهار المعدل
 # =========================================================
 
 def show_average(chat_id):
 
-    user = users.get(chat_id, {})
+    user = database["users"].get(
+        str(chat_id)
+    )
+
+    if not user:
+
+        return
 
     completed = user.get(
         "completed_subjects",
@@ -567,22 +1023,29 @@ def show_average(chat_id):
 
     if len(completed) < len(QUESTIONS):
 
-        remaining = len(QUESTIONS) - len(completed)
+        remaining = (
+            len(QUESTIONS)
+            - len(completed)
+        )
 
         send_message(
             chat_id,
-            f"⚠️ يجب إنهاء جميع المواد أولًا.\n\n"
+            f"⚠️ لم تكمل جميع المواد.\n\n"
             f"📚 بقيت لك {remaining} مادة."
         )
 
         return
 
-    grades = list(completed.values())
+    grades = list(
+        completed.values()
+    )
 
-    average = sum(grades) / len(grades)
+    average = (
+        sum(grades)
+        / len(grades)
+    )
 
-    # نسبة النجاح
-    success_percentage = round(
+    percentage = round(
         average / 20 * 100,
         1
     )
@@ -597,11 +1060,11 @@ def show_average(chat_id):
 
     elif average >= 10:
 
-        level = "👍 ناجح"
+        level = "✅ ناجح"
 
     else:
 
-        level = "💪 تحتاج إلى المزيد من التدريب"
+        level = "💪 تحتاج إلى تدريب أكثر"
 
     result = (
         "━━━━━━━━━━━━━━━━━━\n"
@@ -611,39 +1074,63 @@ def show_average(chat_id):
 
     for subject, grade in completed.items():
 
-        result += f"{subject}: {grade}/20\n"
+        result += (
+            f"{subject}: "
+            f"{grade}/20\n"
+        )
 
     result += (
         "\n━━━━━━━━━━━━━━━━━━\n\n"
-        f"📊 معدلك العام: {average:.2f}/20\n"
-        f"📈 نسبة النجاح: {success_percentage}%\n"
-        f"🏆 تقييمك: {level}\n\n"
-        "🎯 استمر في التدريب، كل اختبار يجعلك أفضل!"
+
+        f"📊 معدلك العام: "
+        f"{average:.2f}/20\n"
+
+        f"📈 نسبة النجاح: "
+        f"{percentage}%\n"
+
+        f"🏆 تقييمك: "
+        f"{level}\n\n"
+
+        "🚀 استمر في التدريب والتطور!"
     )
 
-    send_message(chat_id, result)
+    send_message(
+        chat_id,
+        result
+    )
 
 
 # =========================================================
-# إعادة الاختبارات
+# 🔄 إعادة الاختبارات
 # =========================================================
 
 def reset_tests(chat_id):
 
-    users[chat_id]["completed_subjects"] = {}
+    user = database["users"].get(
+        str(chat_id)
+    )
 
-    users[chat_id].pop("quiz", None)
+    if not user:
+
+        return
+
+    user["completed_subjects"] = {}
+
+    user.pop("quiz", None)
+
+    save_data()
 
     send_message(
         chat_id,
         "🔄 تم إعادة جميع الاختبارات!\n\n"
         "🎓 يمكنك البدء من جديد.",
+
         subjects_keyboard(chat_id)
     )
 
 
 # =========================================================
-# Flask
+# 🌐 Flask
 # =========================================================
 
 @app.route("/", methods=["GET"])
@@ -659,15 +1146,19 @@ def webhook():
         silent=True
     ) or {}
 
+
     # =====================================================
-    # الأزرار Inline
+    # Inline Buttons
     # =====================================================
 
     callback = data.get("callback_query")
 
     if callback:
 
-        callback_data = callback.get("data", "")
+        callback_data = callback.get(
+            "data",
+            ""
+        )
 
         if callback_data.startswith("answer_"):
 
@@ -679,20 +1170,30 @@ def webhook():
 
         return "OK"
 
+
     # =====================================================
-    # الرسائل
+    # Messages
     # =====================================================
 
     message = data.get("message", {})
 
-    chat_id = message.get("chat", {}).get("id")
+    chat_id = message.get(
+        "chat",
+        {}
+    ).get("id")
 
-    text = message.get("text", "").strip()
+    text = message.get(
+        "text",
+        ""
+    ).strip()
 
     if not chat_id:
+
         return "OK"
 
-    users.setdefault(chat_id, {})
+
+    user_id = str(chat_id)
+
 
     # =====================================================
     # START
@@ -700,65 +1201,108 @@ def webhook():
 
     if text == "/start":
 
-        users[chat_id] = {}
+        # إذا كان الحساب مفعلًا
+        if (
+            user_id in database["users"]
+            and database["users"][user_id].get(
+                "activated"
+            )
+        ):
 
-        send_message(
+            user = database["users"][user_id]
+
+            if user.get("branch"):
+
+                send_message(
+                    chat_id,
+                    "🎓 مرحبًا بعودتك!\n\n"
+                    "📚 اختر المادة التي تريدها:",
+                    subjects_keyboard(chat_id)
+                )
+
+            else:
+
+                send_message(
+                    chat_id,
+                    "🎓 مرحبًا بعودتك!\n\n"
+                    "👇 اختر شعبتك:",
+                    branch_keyboard()
+                )
+
+        # حساب جديد
+        else:
+
+            send_message(
+                chat_id,
+                "━━━━━━━━━━━━━━━━━━\n"
+                "🔐 مرحبًا بك في BacMind DZ\n"
+                "━━━━━━━━━━━━━━━━━━\n\n"
+                "للدخول إلى المنصة أرسل:\n\n"
+                "🔑 كود التفعيل الخاص بك"
+            )
+
+        return "OK"
+
+
+    # =====================================================
+    # 🔐 التحقق من الحساب
+    # =====================================================
+
+    if (
+        user_id not in database["users"]
+        or not database["users"][user_id].get(
+            "activated"
+        )
+    ):
+
+        activate_account(
             chat_id,
-            "🎓 مرحبًا بك في BacMind DZ 🇩🇿\n\n"
-            "📝 اختبر مستواك في مواد شعبتك.\n"
-            "📊 أجب عن 10 أسئلة في كل مادة.\n"
-            "🎯 وبعدها اكتشف معدلك التجريبي!\n\n"
-            "👇 اختر شعبتك:",
-            branch_keyboard()
+            text
         )
 
         return "OK"
 
+
     # =====================================================
-    # اختيار الشعبة
+    # 🎓 اختيار الشعبة
     # =====================================================
 
     if text == "🧠 آداب وفلسفة":
 
-        users[chat_id]["branch"] = "آداب وفلسفة"
+        database["users"][user_id][
+            "branch"
+        ] = "آداب وفلسفة"
 
-        users[chat_id].setdefault(
-            "completed_subjects",
-            {}
-        )
+        save_data()
 
         send_message(
             chat_id,
-            "🎓 شعبة آداب وفلسفة\n\n"
+            "🎓 تم اختيار شعبة آداب وفلسفة!\n\n"
             "📚 اختر المادة التي تريد اختبار نفسك فيها:\n\n"
             "📝 كل مادة تحتوي على 10 أسئلة.",
+
             subjects_keyboard(chat_id)
         )
 
         return "OK"
 
+
     # =====================================================
-    # اختيار مادة
+    # 📚 اختيار مادة
     # =====================================================
 
     if text in QUESTIONS:
 
-        if "branch" not in users[chat_id]:
-
-            send_message(
-                chat_id,
-                "⚠️ اختر شعبتك أولًا.",
-                branch_keyboard()
-            )
-
-            return "OK"
-
-        start_subject(chat_id, text)
+        start_subject(
+            chat_id,
+            text
+        )
 
         return "OK"
 
+
     # =====================================================
-    # حساب المعدل
+    # 📊 المعدل
     # =====================================================
 
     if text == "📊 أظهر لي معدلي":
@@ -767,8 +1311,9 @@ def webhook():
 
         return "OK"
 
+
     # =====================================================
-    # إعادة الاختبارات
+    # 🔄 إعادة
     # =====================================================
 
     if text == "🔄 إعادة الاختبارات":
@@ -777,26 +1322,30 @@ def webhook():
 
         return "OK"
 
+
     # =====================================================
-    # رسالة افتراضية
+    # 🤖 رسالة افتراضية
     # =====================================================
 
     send_message(
         chat_id,
-        "🤖 اختر أحد الأزرار من القائمة."
+        "🤖 استخدم الأزرار الموجودة في القائمة."
     )
 
     return "OK"
 
 
 # =========================================================
-# تشغيل التطبيق
+# 🚀 تشغيل التطبيق
 # =========================================================
 
 if __name__ == "__main__":
 
     port = int(
-        os.environ.get("PORT", 10000)
+        os.environ.get(
+            "PORT",
+            10000
+        )
     )
 
     app.run(

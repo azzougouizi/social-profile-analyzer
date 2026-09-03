@@ -1,4 +1,4 @@
 flask
 requests
-openai
+beautifulsoup4
 gunicorn

@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from flask import Flask, request
 
 # =========================================================
-# SETTINGS
+# CONFIG
 # =========================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -20,10 +20,13 @@ if not BOT_TOKEN:
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
+PORT = int(os.getenv("PORT", "10000"))
+
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 Chrome/131.0 Safari/537.36"
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0 Safari/537.36"
     )
 }
 
@@ -43,17 +46,14 @@ L2_URL = (
 )
 
 # =========================================================
-# TEAM NORMALIZATION
+# TEAM ALIASES
 # =========================================================
 
 ALIASES = {
-    # Ligue 1
     "es setif": "ES Sétif",
     "es sétif": "ES Sétif",
-    "ess": "ES Sétif",
 
     "ben aknoun": "Ben Aknoun",
-    "esba": "Ben Aknoun",
 
     "usm alger": "USM Alger",
     "usma": "USM Alger",
@@ -65,11 +65,9 @@ ALIASES = {
     "mco": "MC Oran",
 
     "cr belouizdad": "CR Belouizdad",
-    "belouizdad": "CR Belouizdad",
     "crb": "CR Belouizdad",
 
     "js kabylie": "JS Kabylie",
-    "kabylie": "JS Kabylie",
     "jsk": "JS Kabylie",
 
     "cs constantine": "CS Constantine",
@@ -82,124 +80,65 @@ ALIASES = {
     "usb": "US Biskra",
 
     "js saoura": "JS Saoura",
-    "saoura": "JS Saoura",
     "jss": "JS Saoura",
 
     "khenchela": "Khenchela",
     "usmk": "Khenchela",
 
     "mb rouisset": "MB Rouisset",
-    "rouisset": "MB Rouisset",
-    "mbr": "MB Rouisset",
 
     "olympique akbou": "Olympique Akbou",
     "akbou": "Olympique Akbou",
-    "oa": "Olympique Akbou",
 
     "js el biar": "JS El Biar",
     "el biar": "JS El Biar",
-    "jseb": "JS El Biar",
 
     "cr temouchent": "CR Témouchent",
-    "témouchent": "CR Témouchent",
-    "temouchent": "CR Témouchent",
-    "crt": "CR Témouchent",
+    "cr témouchent": "CR Témouchent",
 
-    # Ligue 2 Centre-Est
+    # L2
     "as khroub": "AS Khroub",
-    "khroub": "AS Khroub",
-
     "usm annaba": "USM Annaba",
-    "annaba": "USM Annaba",
-
     "nc magra": "NC Magra",
-    "magra": "NC Magra",
-
     "us chaouia": "US Chaouia",
-    "chaouia": "US Chaouia",
-
-    "nrb beni oulbaine": "NRB Beni Oulbane",
+    "nrb beni oulban": "NRB Beni Oulbane",
     "nrb beni oulbane": "NRB Beni Oulbane",
-
     "nrb teleghma": "NRB Télaghma",
-    "teleghma": "NRB Télaghma",
-    "télaghma": "NRB Télaghma",
-
+    "nrb télaghma": "NRB Télaghma",
     "msp batna": "MSP Batna",
     "ca batna": "CA Batna",
-
     "js azazga": "JS Azazga",
-    "azazga": "JS Azazga",
-
     "jsm skikda": "JSM Skikda",
-    "skikda": "JSM Skikda",
-
     "irb nezla": "IRB Nezla",
-    "nezla": "IRB Nezla",
-
     "js jijel": "JS Jijel",
-    "jijel": "JS Jijel",
-
     "crb beni thour": "CRB Beni Thour",
-    "beni thour": "CRB Beni Thour",
-
     "mo bejaia": "MO Béjaïa",
     "mo béjaïa": "MO Béjaïa",
-    "bejaia": "MO Béjaïa",
-    "béjaïa": "MO Béjaïa",
-
     "mo constantine": "MO Constantine",
 
-    "paradou ac": "Paradou AC",
-    "paradou": "Paradou AC",
-
-    # Ligue 2 Centre-Ouest
     "mc saida": "MC Saïda",
     "mc saïda": "MC Saïda",
-    "saida": "MC Saïda",
-
     "wa mostaganem": "WA Mostaganem",
-
     "usm el harrach": "USM El Harrach",
-    "el harrach": "USM El Harrach",
-
     "asm oran": "ASM Oran",
-
     "wa tlemcen": "WA Tlemcen",
-
     "jsm tiaret": "JSM Tiaret",
-    "tiaret": "JSM Tiaret",
-
     "na hussein dey": "NA Hussein Dey",
-    "hussein dey": "NA Hussein Dey",
-
     "js taghit": "JS Taghit",
-
     "esm kolea": "ESM Koléa",
     "esm koléa": "ESM Koléa",
-    "koléa": "ESM Koléa",
-    "kolea": "ESM Koléa",
-
     "rc kouba": "RC Kouba",
-
     "gc mascara": "GC Mascara",
-
     "rc arba": "RC Arbaâ",
     "rc arbaâ": "RC Arbaâ",
-
     "irbsm benali": "IRBSM Benali",
-
     "mc el bayadh": "MC El Bayadh",
-
     "es mostaganem": "ES Mostaganem",
-
     "usm blida": "USM Blida",
 }
 
 # =========================================================
-# PREVIOUS-SEASON STRENGTH
-# These are baseline ratings, not current predictions.
-# They are used only when recent results are unavailable.
+# MODEL STRENGTH
 # =========================================================
 
 L1_STRENGTH = {
@@ -257,60 +196,107 @@ L2_STRENGTH = {
 }
 
 # =========================================================
-# HELPERS
+# L2 TEAMS
+# =========================================================
+
+L2_MATCHES = [
+    ("AS Khroub", "Paradou AC"),
+    ("USM Annaba", "NC Magra"),
+    ("US Chaouia", "NRB Beni Oulbane"),
+    ("NRB Télaghma", "MSP Batna"),
+    ("CA Batna", "JS Azazga"),
+    ("JSM Skikda", "IRB Nezla"),
+    ("JS Jijel", "CRB Beni Thour"),
+    ("MO Béjaïa", "MO Constantine"),
+
+    ("MC Saïda", "WA Mostaganem"),
+    ("USM El Harrach", "ASM Oran"),
+    ("WA Tlemcen", "JSM Tiaret"),
+    ("NA Hussein Dey", "JS Taghit"),
+    ("ESM Koléa", "RC Kouba"),
+    ("GC Mascara", "RC Arbaâ"),
+    ("IRBSM Benali", "MC El Bayadh"),
+    ("ES Mostaganem", "USM Blida"),
+]
+
+# =========================================================
+# CACHE
+# =========================================================
+
+MATCH_CACHE = {}
+
+# =========================================================
+# TEXT HELPERS
 # =========================================================
 
 def normalize_text(value):
     value = value or ""
 
     value = unicodedata.normalize("NFKD", value)
+
     value = "".join(
         c for c in value
         if not unicodedata.combining(c)
     )
 
     value = value.lower()
+
     value = value.replace("’", "'")
     value = value.replace("–", "-")
     value = value.replace("—", "-")
 
-    value = re.sub(r"\s+", " ", value).strip()
+    value = re.sub(r"\s+", " ", value)
 
-    return value
+    return value.strip()
 
 
 def canonical_team(name):
-    original = name.strip()
-    key = normalize_text(original)
+    key = normalize_text(name)
 
-    if key in ALIASES:
-        return ALIASES[key]
-
-    return original
+    return ALIASES.get(key, name.strip())
 
 
 def clean_line(line):
     line = line.replace("\xa0", " ")
     line = re.sub(r"\s+", " ", line)
+
     return line.strip()
 
 
+# =========================================================
+# TELEGRAM
+# =========================================================
+
 def telegram_request(method, payload=None):
+
     try:
-        r = requests.post(
+
+        response = requests.post(
             f"{TELEGRAM_API}/{method}",
             json=payload or {},
             timeout=20
         )
 
-        return r.json()
+        print(
+            "Telegram:",
+            method,
+            response.status_code
+        )
+
+        return response.json()
 
     except Exception as e:
-        print("Telegram error:", e)
+
+        print(
+            "Telegram error:",
+            repr(e)
+        )
+
         return {}
 
 
 def send_message(chat_id, text, keyboard=None):
+
     payload = {
         "chat_id": chat_id,
         "text": text,
@@ -320,10 +306,19 @@ def send_message(chat_id, text, keyboard=None):
     if keyboard:
         payload["reply_markup"] = keyboard
 
-    return telegram_request("sendMessage", payload)
+    return telegram_request(
+        "sendMessage",
+        payload
+    )
 
 
-def edit_message(chat_id, message_id, text, keyboard=None):
+def edit_message(
+    chat_id,
+    message_id,
+    text,
+    keyboard=None
+):
+
     payload = {
         "chat_id": chat_id,
         "message_id": message_id,
@@ -334,13 +329,19 @@ def edit_message(chat_id, message_id, text, keyboard=None):
     if keyboard:
         payload["reply_markup"] = keyboard
 
-    return telegram_request("editMessageText", payload)
+    return telegram_request(
+        "editMessageText",
+        payload
+    )
 
 
 def answer_callback(callback_id):
-    telegram_request(
+
+    return telegram_request(
         "answerCallbackQuery",
-        {"callback_query_id": callback_id}
+        {
+            "callback_query_id": callback_id
+        }
     )
 
 
@@ -349,10 +350,19 @@ def answer_callback(callback_id):
 # =========================================================
 
 def main_keyboard():
+
     return {
         "keyboard": [
-            [{"text": "🇩🇿 Ligue 1"}],
-            [{"text": "🇩🇿 Ligue 2"}],
+            [
+                {
+                    "text": "🇩🇿 Ligue 1"
+                }
+            ],
+            [
+                {
+                    "text": "🇩🇿 Ligue 2"
+                }
+            ],
         ],
         "resize_keyboard": True,
         "one_time_keyboard": False,
@@ -360,19 +370,28 @@ def main_keyboard():
 
 
 # =========================================================
-# WEB FETCH
+# WEB
 # =========================================================
 
 def fetch_page(url):
+
     try:
+
+        print(
+            "Fetching:",
+            url
+        )
+
         response = requests.get(
             url,
             headers=HEADERS,
-            timeout=25
+            timeout=30
         )
 
-        print("WEB:", url)
-        print("STATUS:", response.status_code)
+        print(
+            "HTTP:",
+            response.status_code
+        )
 
         if response.status_code != 200:
             return None
@@ -380,15 +399,51 @@ def fetch_page(url):
         return response.text
 
     except Exception as e:
-        print("Web error:", e)
+
+        print(
+            "Fetch error:",
+            repr(e)
+        )
+
         return None
 
 
+def extract_lines(html):
+
+    soup = BeautifulSoup(
+        html,
+        "html.parser"
+    )
+
+    for tag in soup(
+        [
+            "script",
+            "style",
+            "noscript",
+            "svg",
+        ]
+    ):
+        tag.decompose()
+
+    text = soup.get_text("\n")
+
+    lines = []
+
+    for line in text.splitlines():
+
+        line = clean_line(line)
+
+        if line:
+            lines.append(line)
+
+    return lines
+
+
 # =========================================================
-# L1 PARSER
+# L1
 # =========================================================
 
-FRENCH_MONTHS = {
+MONTHS = {
     "janvier": 1,
     "fevrier": 2,
     "février": 2,
@@ -407,46 +462,42 @@ FRENCH_MONTHS = {
 }
 
 
-def extract_lines(html):
-    soup = BeautifulSoup(html, "html.parser")
+def parse_date_line(line):
 
-    for tag in soup(["script", "style", "noscript", "svg"]):
-        tag.decompose()
+    normalized = normalize_text(line)
 
-    text = soup.get_text("\n")
-
-    lines = []
-
-    for line in text.splitlines():
-        line = clean_line(line)
-
-        if line:
-            lines.append(line)
-
-    return lines
-
-
-def parse_french_date(line):
     pattern = (
-        r"(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)"
-        r"\s+(\d{1,2})\s+([A-Za-zéûôîà]+)\s+(\d{4})"
+        r"(?:lundi|mardi|mercredi|jeudi|"
+        r"vendredi|samedi|dimanche)"
+        r"\s+"
+        r"(\d{1,2})"
+        r"\s+"
+        r"([a-zéûôîà]+)"
+        r"\s+"
+        r"(\d{4})"
     )
 
-    m = re.search(pattern, normalize_text(line))
+    match = re.search(
+        pattern,
+        normalized
+    )
 
-    if not m:
+    if not match:
         return None
 
-    day = int(m.group(1))
-    month_name = normalize_text(m.group(2))
-    year = int(m.group(3))
+    day = int(match.group(1))
+    month_name = match.group(2)
+    year = int(match.group(3))
 
-    month = FRENCH_MONTHS.get(month_name)
+    month = MONTHS.get(
+        month_name
+    )
 
     if not month:
         return None
 
     try:
+
         return datetime(
             year,
             month,
@@ -455,529 +506,297 @@ def parse_french_date(line):
         ).date()
 
     except Exception:
+
         return None
 
 
-def looks_like_time(line):
-    return bool(
-        re.search(
-            r"\b\d{1,2}:\d{2}\b",
-            line
-        )
-    )
-
-
 def parse_l1_today():
-    html = fetch_page(L1_URL)
+
+    html = fetch_page(
+        L1_URL
+    )
 
     if not html:
         return []
 
-    lines = extract_lines(html)
+    lines = extract_lines(
+        html
+    )
 
-    today = datetime.now(ALGIERS_TZ).date()
+    today = datetime.now(
+        ALGIERS_TZ
+    ).date()
+
+    known_teams = list(
+        L1_STRENGTH.keys()
+    )
 
     matches = []
 
     current_date = None
 
-    # List of recognizable teams
-    known = set(L1_STRENGTH.keys())
+    for line in lines:
 
-    for i, line in enumerate(lines):
-
-        parsed_date = parse_french_date(line)
+        parsed_date = parse_date_line(
+            line
+        )
 
         if parsed_date:
+
             current_date = parsed_date
+
             continue
 
         if current_date != today:
             continue
 
-        if not looks_like_time(line):
-            continue
-
-        # Example:
-        # ES Sétif Ben Aknoun 20:00
-        #
-        # Try to detect a time and split the remaining text.
-
-        m = re.search(
-            r"^(.*?)\s+(\d{1,2}:\d{2})$",
+        time_match = re.search(
+            r"\b(\d{1,2}:\d{2})\b",
             line
         )
 
-        if not m:
+        if not time_match:
             continue
 
-        teams_text = m.group(1).strip()
-        match_time = m.group(2)
+        match_time = time_match.group(1)
 
-        # Try every known team name.
-        normalized_teams = []
+        teams_text = re.sub(
+            r"\b\d{1,2}:\d{2}\b",
+            "",
+            line
+        ).strip()
 
-        for team in known:
-            nt = normalize_text(team)
+        found = []
 
-            if nt in normalize_text(teams_text):
-                normalized_teams.append(
-                    (len(nt), team)
+        normalized_line = normalize_text(
+            teams_text
+        )
+
+        for team in known_teams:
+
+            key = normalize_text(
+                team
+            )
+
+            if key in normalized_line:
+
+                found.append(
+                    (
+                        len(key),
+                        team
+                    )
                 )
 
-        if len(normalized_teams) < 2:
+        if len(found) < 2:
             continue
 
-        normalized_teams.sort(reverse=True)
+        found.sort(
+            reverse=True
+        )
 
-        home = normalized_teams[0][1]
-        away = normalized_teams[1][1]
+        home = found[0][1]
+        away = found[1][1]
 
         if home == away:
             continue
 
-        matches.append({
-            "league": "Ligue 1",
-            "home": home,
-            "away": away,
-            "time": match_time,
-        })
+        matches.append(
+            {
+                "league": "Ligue 1",
+                "home": home,
+                "away": away,
+                "time": match_time,
+            }
+        )
 
-    # Remove duplicates
     unique = []
 
     seen = set()
 
     for match in matches:
+
         key = (
             match["home"],
             match["away"],
-            match["time"]
+            match["time"],
         )
 
-        if key not in seen:
-            seen.add(key)
-            unique.append(match)
+        if key in seen:
+            continue
 
-    print("L1 TODAY:", unique)
+        seen.add(key)
+
+        unique.append(match)
+
+    print(
+        "L1 matches:",
+        unique
+    )
 
     return unique
 
 
 # =========================================================
-# L2 PARSER
+# L2
 # =========================================================
 
-L2_CENTRE_EST = [
-    ("AS Khroub", "Paradou AC"),
-    ("USM Annaba", "NC Magra"),
-    ("US Chaouia", "NRB Beni Oulbane"),
-    ("NRB Télaghma", "MSP Batna"),
-    ("CA Batna", "JS Azazga"),
-    ("JSM Skikda", "IRB Nezla"),
-    ("JS Jijel", "CRB Beni Thour"),
-    ("MO Béjaïa", "MO Constantine"),
-]
+def get_l2_matches():
 
-L2_CENTRE_OUEST = [
-    ("MC Saïda", "WA Mostaganem"),
-    ("USM El Harrach", "ASM Oran"),
-    ("WA Tlemcen", "JSM Tiaret"),
-    ("NA Hussein Dey", "JS Taghit"),
-    ("ESM Koléa", "RC Kouba"),
-    ("GC Mascara", "RC Arbaâ"),
-    ("IRBSM Benali", "MC El Bayadh"),
-    ("ES Mostaganem", "USM Blida"),
-]
+    html = fetch_page(
+        L2_URL
+    )
 
+    if not html:
+        return []
 
-def find_l2_round_for_today():
-    """
-    Competition.dz article contains the 2026/27 schedule
-    in text sections labelled 1re journée, 2e journée, etc.
+    lines = extract_lines(
+        html
+    )
 
-    The exact calendar dates are not always printed beside
-    every round in the article, so we use the known official
-    start date of Ligue 2 2026/27: 4 September 2026.
+    today = datetime.now(
+        ALGIERS_TZ
+    ).date()
 
-    For later rounds this parser can be extended as dates
-    are published.
-    """
-
-    today = datetime.now(ALGIERS_TZ).date()
-
-    # Season opening: 4 September 2026
-    if today == datetime(2026, 9, 4, tzinfo=ALGIERS_TZ).date():
-        return 1
-
-    # Approximate weekly Friday rounds for the fallback.
-    start = datetime(
+    # Ligue 2 2026/27 opening date.
+    # This is only used to identify the round.
+    season_start = datetime(
         2026,
         9,
         4,
         tzinfo=ALGIERS_TZ
     ).date()
 
-    days = (today - start).days
-
-    if days >= 0:
-        round_no = (days // 7) + 1
-
-        if 1 <= round_no <= 15:
-            return round_no
-
-    return None
-
-
-def parse_l2():
-    html = fetch_page(L2_URL)
-
-    if not html:
+    if today < season_start:
         return []
 
-    lines = extract_lines(html)
+    days = (
+        today -
+        season_start
+    ).days
 
-    today_round = find_l2_round_for_today()
+    round_number = (
+        days // 7
+    ) + 1
 
-    print("L2 ROUND:", today_round)
-
-    if not today_round:
+    if round_number < 1:
         return []
 
-    # Search for "1re journée", "2e journée", etc.
-    round_patterns = [
-        f"{today_round}e journée",
-        f"{today_round}ère journée",
-        f"{today_round}re journée",
-        f"{today_round}eme journée",
-        f"{today_round}ème journée",
-    ]
+    if round_number > 30:
+        return []
+
+    print(
+        "L2 round:",
+        round_number
+    )
+
+    # Try to find the round in the article.
+    round_regex = re.compile(
+        rf"^{round_number}"
+        rf"(?:re|e|eme|ème)"
+        rf"\s+journ[ée]e$",
+        re.IGNORECASE
+    )
 
     start_index = None
 
     for i, line in enumerate(lines):
-        low = normalize_text(line)
 
-        if any(
-            normalize_text(pattern) in low
-            for pattern in round_patterns
+        normalized = normalize_text(
+            line
+        )
+
+        if round_regex.search(
+            normalized
         ):
+
             start_index = i
+
             break
 
+    # If the article structure cannot be parsed,
+    # use the published team pairs for round 1.
     if start_index is None:
 
-        # Special case round 1
-        if today_round == 1:
-            start_index = 0
+        if round_number == 1:
 
-        else:
-            return []
+            return [
+                {
+                    "league": "Ligue 2",
+                    "home": home,
+                    "away": away,
+                    "time": "حسب البرنامج",
+                }
 
-    # Find next round
-    end_index = len(lines)
+                for home, away
+                in L2_MATCHES
+            ]
 
-    for i in range(start_index + 1, len(lines)):
+        return []
 
-        low = normalize_text(lines[i])
+    section = lines[
+        start_index:
+    ]
 
-        if re.match(
-            r"^\d+(?:re|e|eme|ème)\s+journee",
-            low
+    # Stop at the next round.
+    next_round_pattern = re.compile(
+        r"^\d+"
+        r"(?:re|e|eme|ème)"
+        r"\s+journ[ée]e$",
+        re.IGNORECASE
+    )
+
+    for i, line in enumerate(
+        section[1:],
+        start=1
+    ):
+
+        if next_round_pattern.search(
+            normalize_text(line)
         ):
-            end_index = i
+
+            section = section[:i]
+
             break
 
-    section = lines[start_index:end_index]
-
-    all_pairs = (
-        L2_CENTRE_EST +
-        L2_CENTRE_OUEST
+    section_text = normalize_text(
+        " ".join(section)
     )
 
     matches = []
 
-    for home, away in all_pairs:
+    for home, away in L2_MATCHES:
 
-        home_key = normalize_text(home)
-        away_key = normalize_text(away)
-
-        found_home = False
-        found_away = False
-
-        for line in section:
-
-            low = normalize_text(line)
-
-            if home_key in low:
-                found_home = True
-
-            if away_key in low:
-                found_away = True
-
-        if found_home and found_away:
-            matches.append({
-                "league": "Ligue 2",
-                "home": home,
-                "away": away,
-                "time": "غير محدد",
-            })
-
-    # The section parser may miss some matches because of
-    # accents/HTML formatting. For round 1 we use the official
-    # published pairs as a reliable fallback.
-
-    if today_round == 1 and not matches:
-        for home, away in (
-            L2_CENTRE_EST +
-            L2_CENTRE_OUEST
-        ):
-            matches.append({
-                "league": "Ligue 2",
-                "home": home,
-                "away": away,
-                "time": "حسب البرنامج",
-            })
-
-    # Deduplicate
-    unique = []
-    seen = set()
-
-    for match in matches:
-        key = (
-            match["home"],
-            match["away"]
+        home_found = (
+            normalize_text(home)
+            in section_text
         )
 
-        if key not in seen:
-            seen.add(key)
-            unique.append(match)
+        away_found = (
+            normalize_text(away)
+            in section_text
+        )
 
-    print("L2 TODAY:", unique)
+        if home_found and away_found:
 
-    return unique
-
-
-# =========================================================
-# PREDICTION ENGINE
-# =========================================================
-
-def get_strength(team, league):
-    if league == "Ligue 1":
-        table = L1_STRENGTH
-    else:
-        table = L2_STRENGTH
-
-    if team in table:
-        return table[team]
-
-    return 60
-
-
-def poisson_probability(lam, k):
-    if lam < 0:
-        lam = 0
-
-    return (
-        math.exp(-lam) *
-        (lam ** k) /
-        math.factorial(k)
-    )
-
-
-def calculate_prediction(home, away, league):
-
-    home_strength = get_strength(home, league)
-    away_strength = get_strength(away, league)
-
-    # Home advantage
-    strength_difference = (
-        home_strength -
-        away_strength
-    )
-
-    # Baseline expected goals for Algerian leagues.
-    # Conservative because these leagues are generally
-    # lower scoring than many European leagues.
-
-    base_home = 1.15
-    base_away = 0.85
-
-    adjustment = strength_difference / 45.0
-
-    home_xg = base_home + adjustment
-    away_xg = base_away - adjustment / 2
-
-    # Keep sane bounds
-    home_xg = max(0.20, min(2.70, home_xg))
-    away_xg = max(0.15, min(2.30, away_xg))
-
-    # 1X2 probabilities using Poisson
-    home_win = 0.0
-    draw = 0.0
-    away_win = 0.0
-
-    best_score = (0, 0)
-    best_score_probability = -1
-
-    for hg in range(0, 7):
-        for ag in range(0, 7):
-
-            p = (
-                poisson_probability(home_xg, hg) *
-                poisson_probability(away_xg, ag)
+            matches.append(
+                {
+                    "league": "Ligue 2",
+                    "home": home,
+                    "away": away,
+                    "time": "حسب البرنامج",
+                }
             )
 
-            if hg > ag:
-                home_win += p
-            elif hg == ag:
-                draw += p
-            else:
-                away_win += p
-
-            if p > best_score_probability:
-                best_score_probability = p
-                best_score = (hg, ag)
-
-    total = home_win + draw + away_win
-
-    if total > 0:
-        home_win /= total
-        draw /= total
-        away_win /= total
-
-    # Slight normalization
-    home_pct = round(home_win * 100)
-    draw_pct = round(draw * 100)
-    away_pct = 100 - home_pct - draw_pct
-
-    # Winner
-    if home_pct >= draw_pct and home_pct >= away_pct:
-        winner = home
-        winner_icon = "🏠"
-    elif away_pct >= home_pct and away_pct >= draw_pct:
-        winner = away
-        winner_icon = "✈️"
-    else:
-        winner = "تعادل"
-        winner_icon = "🤝"
-
-    total_xg = home_xg + away_xg
-
-    # BTTS
-    btts_probability = (
-        (1 - math.exp(-home_xg)) *
-        (1 - math.exp(-away_xg))
+    print(
+        "L2 matches:",
+        matches
     )
 
-    # Over 2.5 using total Poisson
-    under_sum = 0
-
-    for total_goals in range(0, 3):
-        for hg in range(0, total_goals + 1):
-
-            ag = total_goals - hg
-
-            under_sum += (
-                poisson_probability(home_xg, hg) *
-                poisson_probability(away_xg, ag)
-            )
-
-    over25 = 1 - under_sum
-
-    # Cards estimate
-    # This is a model estimate, NOT live card statistics.
-    cards = 3.4
-
-    if abs(strength_difference) > 15:
-        cards += 0.3
-
-    if total_xg < 1.8:
-        cards += 0.2
-
-    cards = round(cards, 1)
-
-    return {
-        "home_pct": home_pct,
-        "draw_pct": draw_pct,
-        "away_pct": away_pct,
-        "winner": winner,
-        "winner_icon": winner_icon,
-        "home_xg": round(home_xg, 2),
-        "away_xg": round(away_xg, 2),
-        "total_xg": round(total_xg, 2),
-        "score": f"{best_score[0]} - {best_score[1]}",
-        "btts": round(btts_probability * 100),
-        "over25": round(over25 * 100),
-        "cards": cards,
-        "home_strength": home_strength,
-        "away_strength": away_strength,
-    }
+    return matches
 
 
 # =========================================================
-# ANALYSIS MESSAGE
-# =========================================================
-
-def build_analysis(match):
-
-    league = match["league"]
-    home = match["home"]
-    away = match["away"]
-    time = match.get("time", "غير محدد")
-
-    prediction = calculate_prediction(
-        home,
-        away,
-        league
-    )
-
-    text = (
-        f"🔎 <b>تحليل المباراة</b>\n\n"
-        f"🏆 <b>{league}</b>\n"
-        f"⚽ <b>{home} × {away}</b>\n"
-        f"🕒 الوقت: <b>{time}</b>\n\n"
-
-        f"━━━━━━━━━━━━━━\n"
-        f"🏆 <b>التوقع الرئيسي</b>\n"
-        f"{prediction['winner_icon']} "
-        f"<b>{prediction['winner']}</b>\n\n"
-
-        f"📊 <b>احتمالات 1X2</b>\n"
-        f"🏠 {home}: <b>{prediction['home_pct']}%</b>\n"
-        f"🤝 التعادل: <b>{prediction['draw_pct']}%</b>\n"
-        f"✈️ {away}: <b>{prediction['away_pct']}%</b>\n\n"
-
-        f"⚽ <b>الأهداف المتوقعة</b>\n"
-        f"🏠 {home}: {prediction['home_xg']}\n"
-        f"✈️ {away}: {prediction['away_xg']}\n"
-        f"📈 المجموع: {prediction['total_xg']}\n\n"
-
-        f"🎯 <b>النتيجة الأقرب:</b> "
-        f"<b>{prediction['score']}</b>\n\n"
-
-        f"🥅 <b>الفريقان يسجلان:</b> "
-        f"{prediction['btts']}%\n"
-        f"⚽ <b>أكثر من 2.5 هدف:</b> "
-        f"{prediction['over25']}%\n"
-        f"🟨 <b>البطاقات المتوقعة:</b> "
-        f"حوالي {prediction['cards']}\n\n"
-
-        f"📈 <b>قوة الفريقين في النموذج</b>\n"
-        f"🏠 {home}: {prediction['home_strength']}/100\n"
-        f"✈️ {away}: {prediction['away_strength']}/100\n\n"
-
-        f"━━━━━━━━━━━━━━\n"
-        f"ℹ️ <i>هذه توقعات حسابية وليست ضمانًا للنتيجة. "
-        f"بعض الإحصائيات مثل البطاقات هنا تقديرية وليست بيانات "
-        f"مباشرة من المباراة.</i>"
-    )
-
-    return text
-
-
-# =========================================================
-# MATCH LIST
+# MATCHES
 # =========================================================
 
 def get_matches(league):
@@ -986,26 +805,375 @@ def get_matches(league):
         return parse_l1_today()
 
     if league == "Ligue 2":
-        return parse_l2()
+        return get_l2_matches()
 
     return []
 
+
+# =========================================================
+# PREDICTION
+# =========================================================
+
+def get_strength(team, league):
+
+    if league == "Ligue 1":
+        table = L1_STRENGTH
+    else:
+        table = L2_STRENGTH
+
+    return table.get(
+        team,
+        60
+    )
+
+
+def poisson_probability(
+    lam,
+    goals
+):
+
+    return (
+        math.exp(-lam)
+        *
+        (lam ** goals)
+        /
+        math.factorial(goals)
+    )
+
+
+def calculate_prediction(
+    home,
+    away,
+    league
+):
+
+    home_strength = get_strength(
+        home,
+        league
+    )
+
+    away_strength = get_strength(
+        away,
+        league
+    )
+
+    difference = (
+        home_strength -
+        away_strength
+    )
+
+    # Model baseline
+    home_xg = (
+        1.15 +
+        difference / 45
+    )
+
+    away_xg = (
+        0.85 -
+        difference / 90
+    )
+
+    home_xg = max(
+        0.20,
+        min(
+            home_xg,
+            2.70
+        )
+    )
+
+    away_xg = max(
+        0.15,
+        min(
+            away_xg,
+            2.30
+        )
+    )
+
+    home_win = 0
+    draw = 0
+    away_win = 0
+
+    best_score = (
+        0,
+        0
+    )
+
+    best_probability = 0
+
+    for hg in range(7):
+
+        for ag in range(7):
+
+            probability = (
+                poisson_probability(
+                    home_xg,
+                    hg
+                )
+                *
+                poisson_probability(
+                    away_xg,
+                    ag
+                )
+            )
+
+            if hg > ag:
+                home_win += probability
+
+            elif hg == ag:
+                draw += probability
+
+            else:
+                away_win += probability
+
+            if probability > best_probability:
+
+                best_probability = probability
+
+                best_score = (
+                    hg,
+                    ag
+                )
+
+    total = (
+        home_win +
+        draw +
+        away_win
+    )
+
+    home_pct = round(
+        home_win /
+        total *
+        100
+    )
+
+    draw_pct = round(
+        draw /
+        total *
+        100
+    )
+
+    away_pct = (
+        100 -
+        home_pct -
+        draw_pct
+    )
+
+    if (
+        home_pct >= draw_pct
+        and
+        home_pct >= away_pct
+    ):
+
+        winner = home
+        winner_icon = "🏠"
+
+    elif (
+        away_pct >= home_pct
+        and
+        away_pct >= draw_pct
+    ):
+
+        winner = away
+        winner_icon = "✈️"
+
+    else:
+
+        winner = "تعادل"
+        winner_icon = "🤝"
+
+    total_xg = (
+        home_xg +
+        away_xg
+    )
+
+    btts = (
+        1 -
+        math.exp(-home_xg)
+    ) * (
+        1 -
+        math.exp(-away_xg)
+    )
+
+    under_25 = 0
+
+    for hg in range(3):
+
+        for ag in range(3 - hg):
+
+            under_25 += (
+                poisson_probability(
+                    home_xg,
+                    hg
+                )
+                *
+                poisson_probability(
+                    away_xg,
+                    ag
+                )
+            )
+
+    over_25 = 1 - under_25
+
+    cards = 3.4
+
+    if abs(difference) > 15:
+        cards += 0.3
+
+    if total_xg < 1.8:
+        cards += 0.2
+
+    return {
+        "winner": winner,
+        "winner_icon": winner_icon,
+
+        "home_pct": home_pct,
+        "draw_pct": draw_pct,
+        "away_pct": away_pct,
+
+        "home_xg": round(
+            home_xg,
+            2
+        ),
+
+        "away_xg": round(
+            away_xg,
+            2
+        ),
+
+        "total_xg": round(
+            total_xg,
+            2
+        ),
+
+        "score": (
+            f"{best_score[0]}"
+            f" - "
+            f"{best_score[1]}"
+        ),
+
+        "btts": round(
+            btts * 100
+        ),
+
+        "over25": round(
+            over_25 * 100
+        ),
+
+        "cards": round(
+            cards,
+            1
+        ),
+
+        "home_strength": home_strength,
+        "away_strength": away_strength,
+    }
+
+
+# =========================================================
+# ANALYSIS
+# =========================================================
+
+def build_analysis(match):
+
+    league = match["league"]
+
+    home = match["home"]
+
+    away = match["away"]
+
+    time = match.get(
+        "time",
+        "غير محدد"
+    )
+
+    prediction = calculate_prediction(
+        home,
+        away,
+        league
+    )
+
+    return (
+        "🔎 <b>تحليل المباراة</b>\n\n"
+
+        f"🏆 البطولة: <b>{league}</b>\n"
+        f"⚽ <b>{home} × {away}</b>\n"
+        f"🕒 الوقت: <b>{time}</b>\n\n"
+
+        "━━━━━━━━━━━━━━\n"
+
+        "🏆 <b>التوقع الرئيسي</b>\n"
+        f"{prediction['winner_icon']} "
+        f"<b>{prediction['winner']}</b>\n\n"
+
+        "📊 <b>احتمالات 1X2</b>\n"
+        f"🏠 {home}: "
+        f"<b>{prediction['home_pct']}%</b>\n"
+        f"🤝 التعادل: "
+        f"<b>{prediction['draw_pct']}%</b>\n"
+        f"✈️ {away}: "
+        f"<b>{prediction['away_pct']}%</b>\n\n"
+
+        "⚽ <b>الأهداف المتوقعة</b>\n"
+        f"🏠 {home}: "
+        f"{prediction['home_xg']}\n"
+        f"✈️ {away}: "
+        f"{prediction['away_xg']}\n"
+        f"📈 المجموع: "
+        f"{prediction['total_xg']}\n\n"
+
+        "🎯 <b>النتيجة الأقرب:</b> "
+        f"<b>{prediction['score']}</b>\n\n"
+
+        "🥅 <b>الفريقان يسجلان:</b> "
+        f"{prediction['btts']}%\n"
+
+        "⚽ <b>أكثر من 2.5 هدف:</b> "
+        f"{prediction['over25']}%\n"
+
+        "🟨 <b>البطاقات المتوقعة:</b> "
+        f"حوالي {prediction['cards']}\n\n"
+
+        "📈 <b>قوة الفريقين في النموذج</b>\n"
+        f"🏠 {home}: "
+        f"{prediction['home_strength']}/100\n"
+        f"✈️ {away}: "
+        f"{prediction['away_strength']}/100\n\n"
+
+        "━━━━━━━━━━━━━━\n"
+
+        "ℹ️ <i>التوقع حسابي وليس ضمانًا "
+        "للنتيجة. البطاقات تقديرية وليست "
+        "إحصائية مباشرة.</i>"
+    )
+
+
+# =========================================================
+# INLINE BUTTONS
+# =========================================================
 
 def matches_keyboard(matches):
 
     rows = []
 
-    for i, match in enumerate(matches):
+    for index, match in enumerate(
+        matches
+    ):
 
-        home = match["home"]
-        away = match["away"]
-
-        button = {
-            "text": f"🔎 تحليل {home} × {away}",
-            "callback_data": f"ANALYZE|{i}"
-        }
-
-        rows.append([button])
+        rows.append(
+            [
+                {
+                    "text": (
+                        f"🔎 تحليل "
+                        f"{match['home']} "
+                        f"× "
+                        f"{match['away']}"
+                    ),
+                    "callback_data": (
+                        f"ANALYZE|{index}"
+                    ),
+                }
+            ]
+        )
 
     return {
         "inline_keyboard": rows
@@ -1013,142 +1181,182 @@ def matches_keyboard(matches):
 
 
 # =========================================================
-# TEMPORARY MATCH CACHE
+# CACHE
 # =========================================================
 
-MATCH_CACHE = {}
+def save_matches(
+    chat_id,
+    matches
+):
+
+    MATCH_CACHE[
+        str(chat_id)
+    ] = matches
 
 
-def cache_matches(chat_id, matches):
+def cached_match(
+    chat_id,
+    index
+):
 
-    MATCH_CACHE[str(chat_id)] = matches
-
-
-def get_cached_match(chat_id, index):
-
-    matches = MATCH_CACHE.get(str(chat_id), [])
+    matches = MATCH_CACHE.get(
+        str(chat_id),
+        []
+    )
 
     try:
-        return matches[int(index)]
+
+        return matches[
+            int(index)
+        ]
 
     except Exception:
+
         return None
 
 
 # =========================================================
-# TELEGRAM HANDLER
+# SEND LEAGUE
 # =========================================================
 
-@app.route("/", methods=["GET"])
-def home():
-    return "Football Algeria Bot is running."
+def show_league(
+    chat_id,
+    league
+):
+
+    send_message(
+        chat_id,
+        "⏳ جاري البحث عن مباريات "
+        f"<b>{league}</b>...",
+    )
+
+    matches = get_matches(
+        league
+    )
+
+    save_matches(
+        chat_id,
+        matches
+    )
+
+    if not matches:
+
+        send_message(
+            chat_id,
+            f"⚠️ لا توجد مباريات "
+            f"<b>{league}</b> متاحة حاليًا.\n\n"
+            "قد يكون السبب عدم وجود مباريات "
+            "اليوم أو تغير تنسيق المصدر.",
+            main_keyboard()
+        )
+
+        return
+
+    text = (
+        f"🇩🇿 <b>{league}</b>\n\n"
+        "⚽ <b>المباريات المتاحة:</b>\n\n"
+    )
+
+    for match in matches:
+
+        text += (
+            f"⚽ {match['home']} "
+            f"× "
+            f"{match['away']}\n"
+            f"🕒 {match['time']}\n\n"
+        )
+
+    text += (
+        "👇 <b>اختر مباراة للحصول على التحليل:</b>"
+    )
+
+    send_message(
+        chat_id,
+        text,
+        matches_keyboard(
+            matches
+        )
+    )
 
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
+# =========================================================
+# WEBHOOK
+# =========================================================
 
-    update = request.get_json(silent=True) or {}
+@app.route(
+    "/telegram/webhook",
+    methods=["POST"]
+)
+def telegram_webhook():
+
+    update = request.get_json(
+        silent=True
+    ) or {}
+
+    print(
+        "Telegram update received"
+    )
 
     # -----------------------------------------------------
-    # NORMAL MESSAGE
+    # MESSAGE
     # -----------------------------------------------------
 
-    message = update.get("message")
+    message = update.get(
+        "message"
+    )
 
     if message:
 
-        chat_id = message["chat"]["id"]
-        text = message.get("text", "").strip()
+        chat_id = message[
+            "chat"
+        ][
+            "id"
+        ]
+
+        text = message.get(
+            "text",
+            ""
+        ).strip()
+
+        print(
+            "Message:",
+            text
+        )
 
         if text == "/start":
 
-            welcome = (
-                "⚽ <b>مرحبا بك في بوت تحليل كرة القدم الجزائرية</b>\n\n"
-                "اختر البطولة:\n\n"
-                "🇩🇿 Ligue 1\n"
-                "🇩🇿 Ligue 2"
-            )
-
             send_message(
                 chat_id,
-                welcome,
+
+                "⚽ <b>مرحبًا بك</b>\n\n"
+                "🇩🇿 بوت تحليل كرة القدم الجزائرية\n\n"
+                "اختر البطولة:",
+                
                 main_keyboard()
             )
 
             return "OK"
 
-        if text in ["🇩🇿 Ligue 1", "Ligue 1"]:
+        if text in (
+            "🇩🇿 Ligue 1",
+            "Ligue 1"
+        ):
 
-            matches = get_matches("Ligue 1")
-
-            cache_matches(chat_id, matches)
-
-            if not matches:
-
-                send_message(
-                    chat_id,
-                    "⚠️ لم أجد مباريات Ligue 1 لليوم في المصدر الحالي.\n\n"
-                    "قد يكون السبب عدم وجود مباريات اليوم أو تغير تنسيق الموقع.",
-                    main_keyboard()
-                )
-
-                return "OK"
-
-            text_out = (
-                "🇩🇿 <b>Ligue 1</b>\n\n"
-                "⚽ <b>مباريات اليوم:</b>\n\n"
-            )
-
-            for m in matches:
-                text_out += (
-                    f"⚽ {m['home']} × {m['away']}\n"
-                    f"🕒 {m['time']}\n\n"
-                )
-
-            text_out += "👇 اختر مباراة للتحليل:"
-
-            send_message(
+            show_league(
                 chat_id,
-                text_out,
-                matches_keyboard(matches)
+                "Ligue 1"
             )
 
             return "OK"
 
-        if text in ["🇩🇿 Ligue 2", "Ligue 2"]:
+        if text in (
+            "🇩🇿 Ligue 2",
+            "Ligue 2"
+        ):
 
-            matches = get_matches("Ligue 2")
-
-            cache_matches(chat_id, matches)
-
-            if not matches:
-
-                send_message(
-                    chat_id,
-                    "⚠️ لم أجد مباريات Ligue 2 لليوم في المصدر الحالي.\n\n"
-                    "إذا لم تكن هناك مباريات اليوم، سيظهر هذا التنبيه.",
-                    main_keyboard()
-                )
-
-                return "OK"
-
-            text_out = (
-                "🇩🇿 <b>Ligue 2</b>\n\n"
-                "⚽ <b>مباريات اليوم:</b>\n\n"
-            )
-
-            for m in matches:
-                text_out += (
-                    f"⚽ {m['home']} × {m['away']}\n"
-                    f"🕒 {m['time']}\n\n"
-                )
-
-            text_out += "👇 اختر مباراة للتحليل:"
-
-            send_message(
+            show_league(
                 chat_id,
-                text_out,
-                matches_keyboard(matches)
+                "Ligue 2"
             )
 
             return "OK"
@@ -1159,25 +1367,50 @@ def webhook():
     # CALLBACK
     # -----------------------------------------------------
 
-    callback = update.get("callback_query")
+    callback = update.get(
+        "callback_query"
+    )
 
     if callback:
 
-        callback_id = callback["id"]
-        data = callback.get("data", "")
+        callback_id = callback[
+            "id"
+        ]
 
-        message = callback.get("message", {})
+        answer_callback(
+            callback_id
+        )
 
-        chat_id = message.get("chat", {}).get("id")
-        message_id = message.get("message_id")
+        data = callback.get(
+            "data",
+            ""
+        )
 
-        answer_callback(callback_id)
+        message = callback.get(
+            "message",
+            {}
+        )
 
-        if data.startswith("ANALYZE|"):
+        chat_id = (
+            message
+            .get("chat", {})
+            .get("id")
+        )
 
-            index = data.split("|", 1)[1]
+        message_id = message.get(
+            "message_id"
+        )
 
-            match = get_cached_match(
+        if data.startswith(
+            "ANALYZE|"
+        ):
+
+            index = data.split(
+                "|",
+                1
+            )[1]
+
+            match = cached_match(
                 chat_id,
                 index
             )
@@ -1187,19 +1420,25 @@ def webhook():
                 edit_message(
                     chat_id,
                     message_id,
-                    "⚠️ انتهت صلاحية هذه القائمة. اضغط على الدوري مرة أخرى."
+
+                    "⚠️ انتهت صلاحية القائمة.\n"
+                    "اضغط على الدوري من جديد."
                 )
 
                 return "OK"
 
-            analysis = build_analysis(match)
+            analysis = build_analysis(
+                match
+            )
 
-            back_keyboard = {
+            keyboard = {
                 "inline_keyboard": [
                     [
                         {
-                            "text": "⬅️ رجوع للمباريات",
-                            "callback_data": "BACK"
+                            "text": (
+                                "⬅️ رجوع للمباريات"
+                            ),
+                            "callback_data": "BACK",
                         }
                     ]
                 ]
@@ -1209,7 +1448,7 @@ def webhook():
                 chat_id,
                 message_id,
                 analysis,
-                back_keyboard
+                keyboard
             )
 
             return "OK"
@@ -1226,32 +1465,42 @@ def webhook():
                 edit_message(
                     chat_id,
                     message_id,
-                    "⚠️ لا توجد قائمة محفوظة. اختر الدوري من جديد."
+                    "⚠️ لا توجد قائمة محفوظة."
                 )
 
                 return "OK"
 
-            league = matches[0]["league"]
+            league = matches[
+                0
+            ][
+                "league"
+            ]
 
-            text_out = (
+            text = (
                 f"🇩🇿 <b>{league}</b>\n\n"
                 "⚽ <b>المباريات:</b>\n\n"
             )
 
-            for m in matches:
+            for match in matches:
 
-                text_out += (
-                    f"⚽ {m['home']} × {m['away']}\n"
-                    f"🕒 {m['time']}\n\n"
+                text += (
+                    f"⚽ {match['home']} "
+                    f"× "
+                    f"{match['away']}\n"
+                    f"🕒 {match['time']}\n\n"
                 )
 
-            text_out += "👇 اختر مباراة:"
+            text += (
+                "👇 <b>اختر مباراة:</b>"
+            )
 
             edit_message(
                 chat_id,
                 message_id,
-                text_out,
-                matches_keyboard(matches)
+                text,
+                matches_keyboard(
+                    matches
+                )
             )
 
             return "OK"
@@ -1260,26 +1509,83 @@ def webhook():
 
 
 # =========================================================
-# START
+# SECOND ROUTE
+# Compatibility with old webhook
+# =========================================================
+
+@app.route(
+    "/webhook",
+    methods=["POST"]
+)
+def old_webhook():
+
+    return telegram_webhook()
+
+
+# =========================================================
+# HEALTH CHECK
+# =========================================================
+
+@app.route(
+    "/",
+    methods=["GET"]
+)
+def index():
+
+    return (
+        "⚽ Algeria Football Bot "
+        "is running."
+    )
+
+
+@app.route(
+    "/health",
+    methods=["GET"]
+)
+def health():
+
+    return "OK"
+
+
+# =========================================================
+# RUN
 # =========================================================
 
 if __name__ == "__main__":
 
-    port = int(
-        os.getenv(
-            "PORT",
-            "10000"
-        )
+    print(
+        "================================="
     )
 
-    print("=================================")
-    print("⚽ ALGERIA FOOTBALL BOT")
-    print("🚫 No football API")
-    print("🚫 No OpenAI")
-    print("🇩🇿 Ligue 1 + Ligue 2")
-    print("=================================")
+    print(
+        "⚽ ALGERIA FOOTBALL BOT"
+    )
+
+    print(
+        "🇩🇿 Ligue 1 + Ligue 2"
+    )
+
+    print(
+        "🚫 No football API"
+    )
+
+    print(
+        "🚫 No OpenAI"
+    )
+
+    print(
+        "📡 Webhook: /telegram/webhook"
+    )
+
+    print(
+        f"🚀 Port: {PORT}"
+    )
+
+    print(
+        "================================="
+    )
 
     app.run(
         host="0.0.0.0",
-        port=port
+        port=PORT
     )

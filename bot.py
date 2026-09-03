@@ -1,13 +1,10 @@
 import os
-import re
-import math
-import unicodedata
-from datetime import datetime
-from zoneinfo import ZoneInfo
+import random
+import sqlite3
 
-import requests
-from bs4 import BeautifulSoup
 from flask import Flask, request
+import requests
+
 
 # =========================================================
 # CONFIG
@@ -15,323 +12,155 @@ from flask import Flask, request
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN is missing")
+# 🔐 كود الدخول الموحد لجميع التلاميذ
+ACCESS_CODE = "BAC2026"
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-PORT = int(os.getenv("PORT", "10000"))
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0 Safari/537.36"
-    )
-}
-
-ALGIERS_TZ = ZoneInfo("Africa/Algiers")
-
 app = Flask(__name__)
 
-# =========================================================
-# SOURCES
-# =========================================================
-
-L1_URL = "https://www.footmercato.net/algerie/ligue-1/calendrier/"
-
-L2_URL = (
-    "https://competition.dz/chrono/"
-    "ligue-2-les-calendriers-des-groupes-centre-est-et-centre-ouest-devoiles.html"
-)
 
 # =========================================================
-# TEAM ALIASES
+# DATABASE
 # =========================================================
 
-ALIASES = {
-    "es setif": "ES Sétif",
-    "es sétif": "ES Sétif",
+DB_NAME = "students.db"
 
-    "ben aknoun": "Ben Aknoun",
 
-    "usm alger": "USM Alger",
-    "usma": "USM Alger",
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
 
-    "mc alger": "MC Alger",
-    "mca": "MC Alger",
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS students (
+            chat_id INTEGER PRIMARY KEY,
+            access_granted INTEGER DEFAULT 0,
+            score INTEGER DEFAULT 0,
+            correct INTEGER DEFAULT 0,
+            wrong INTEGER DEFAULT 0
+        )
+    """)
 
-    "mc oran": "MC Oran",
-    "mco": "MC Oran",
+    conn.commit()
+    conn.close()
 
-    "cr belouizdad": "CR Belouizdad",
-    "crb": "CR Belouizdad",
 
-    "js kabylie": "JS Kabylie",
-    "jsk": "JS Kabylie",
+init_db()
 
-    "cs constantine": "CS Constantine",
-    "csc": "CS Constantine",
 
-    "aso chlef": "ASO Chlef",
-    "aso": "ASO Chlef",
+def get_student(chat_id):
 
-    "us biskra": "US Biskra",
-    "usb": "US Biskra",
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
 
-    "js saoura": "JS Saoura",
-    "jss": "JS Saoura",
-
-    "khenchela": "Khenchela",
-    "usmk": "Khenchela",
-
-    "mb rouisset": "MB Rouisset",
-
-    "olympique akbou": "Olympique Akbou",
-    "akbou": "Olympique Akbou",
-
-    "js el biar": "JS El Biar",
-    "el biar": "JS El Biar",
-
-    "cr temouchent": "CR Témouchent",
-    "cr témouchent": "CR Témouchent",
-
-    # L2
-    "as khroub": "AS Khroub",
-    "usm annaba": "USM Annaba",
-    "nc magra": "NC Magra",
-    "us chaouia": "US Chaouia",
-    "nrb beni oulban": "NRB Beni Oulbane",
-    "nrb beni oulbane": "NRB Beni Oulbane",
-    "nrb teleghma": "NRB Télaghma",
-    "nrb télaghma": "NRB Télaghma",
-    "msp batna": "MSP Batna",
-    "ca batna": "CA Batna",
-    "js azazga": "JS Azazga",
-    "jsm skikda": "JSM Skikda",
-    "irb nezla": "IRB Nezla",
-    "js jijel": "JS Jijel",
-    "crb beni thour": "CRB Beni Thour",
-    "mo bejaia": "MO Béjaïa",
-    "mo béjaïa": "MO Béjaïa",
-    "mo constantine": "MO Constantine",
-
-    "mc saida": "MC Saïda",
-    "mc saïda": "MC Saïda",
-    "wa mostaganem": "WA Mostaganem",
-    "usm el harrach": "USM El Harrach",
-    "asm oran": "ASM Oran",
-    "wa tlemcen": "WA Tlemcen",
-    "jsm tiaret": "JSM Tiaret",
-    "na hussein dey": "NA Hussein Dey",
-    "js taghit": "JS Taghit",
-    "esm kolea": "ESM Koléa",
-    "esm koléa": "ESM Koléa",
-    "rc kouba": "RC Kouba",
-    "gc mascara": "GC Mascara",
-    "rc arba": "RC Arbaâ",
-    "rc arbaâ": "RC Arbaâ",
-    "irbsm benali": "IRBSM Benali",
-    "mc el bayadh": "MC El Bayadh",
-    "es mostaganem": "ES Mostaganem",
-    "usm blida": "USM Blida",
-}
-
-# =========================================================
-# MODEL STRENGTH
-# =========================================================
-
-L1_STRENGTH = {
-    "MC Alger": 82,
-    "JS Saoura": 77,
-    "CR Belouizdad": 76,
-    "MC Oran": 73,
-    "JS Kabylie": 72,
-    "Olympique Akbou": 71,
-    "Khenchela": 69,
-    "Ben Aknoun": 68,
-    "CS Constantine": 68,
-    "USM Alger": 67,
-    "ES Sétif": 67,
-    "MB Rouisset": 64,
-    "ASO Chlef": 62,
-    "Paradou AC": 58,
-    "CR Témouchent": 56,
-    "JS El Biar": 55,
-    "US Biskra": 66,
-}
-
-L2_STRENGTH = {
-    "JS El Biar": 80,
-    "USM El Harrach": 76,
-    "CR Témouchent": 74,
-    "RC Kouba": 74,
-    "ASM Oran": 73,
-    "NA Hussein Dey": 68,
-    "WA Tlemcen": 66,
-    "JSM Tiaret": 65,
-    "ESM Koléa": 63,
-    "WA Mostaganem": 62,
-    "MC Saïda": 61,
-    "GC Mascara": 59,
-    "RC Arbaâ": 57,
-    "USM Blida": 56,
-
-    "AS Khroub": 63,
-    "USM Annaba": 69,
-    "NC Magra": 67,
-    "US Chaouia": 73,
-    "NRB Beni Oulbane": 64,
-    "NRB Télaghma": 64,
-    "MSP Batna": 65,
-    "CA Batna": 73,
-    "JS Azazga": 64,
-    "JSM Skikda": 62,
-    "IRB Nezla": 61,
-    "JS Jijel": 70,
-    "CRB Beni Thour": 60,
-    "MO Béjaïa": 73,
-    "MO Constantine": 62,
-    "Paradou AC": 65,
-}
-
-# =========================================================
-# L2 TEAMS
-# =========================================================
-
-L2_MATCHES = [
-    ("AS Khroub", "Paradou AC"),
-    ("USM Annaba", "NC Magra"),
-    ("US Chaouia", "NRB Beni Oulbane"),
-    ("NRB Télaghma", "MSP Batna"),
-    ("CA Batna", "JS Azazga"),
-    ("JSM Skikda", "IRB Nezla"),
-    ("JS Jijel", "CRB Beni Thour"),
-    ("MO Béjaïa", "MO Constantine"),
-
-    ("MC Saïda", "WA Mostaganem"),
-    ("USM El Harrach", "ASM Oran"),
-    ("WA Tlemcen", "JSM Tiaret"),
-    ("NA Hussein Dey", "JS Taghit"),
-    ("ESM Koléa", "RC Kouba"),
-    ("GC Mascara", "RC Arbaâ"),
-    ("IRBSM Benali", "MC El Bayadh"),
-    ("ES Mostaganem", "USM Blida"),
-]
-
-# =========================================================
-# CACHE
-# =========================================================
-
-MATCH_CACHE = {}
-
-# =========================================================
-# TEXT HELPERS
-# =========================================================
-
-def normalize_text(value):
-    value = value or ""
-
-    value = unicodedata.normalize("NFKD", value)
-
-    value = "".join(
-        c for c in value
-        if not unicodedata.combining(c)
+    cursor.execute(
+        "SELECT * FROM students WHERE chat_id = ?",
+        (chat_id,)
     )
 
-    value = value.lower()
+    student = cursor.fetchone()
 
-    value = value.replace("’", "'")
-    value = value.replace("–", "-")
-    value = value.replace("—", "-")
+    conn.close()
 
-    value = re.sub(r"\s+", " ", value)
-
-    return value.strip()
+    return student
 
 
-def canonical_team(name):
-    key = normalize_text(name)
+def create_student(chat_id):
 
-    return ALIASES.get(key, name.strip())
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT OR IGNORE INTO students
+        (chat_id, access_granted, score, correct, wrong)
+        VALUES (?, 0, 0, 0, 0)
+    """, (chat_id,))
+
+    conn.commit()
+    conn.close()
 
 
-def clean_line(line):
-    line = line.replace("\xa0", " ")
-    line = re.sub(r"\s+", " ", line)
+def grant_access(chat_id):
 
-    return line.strip()
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE students
+        SET access_granted = 1
+        WHERE chat_id = ?
+    """, (chat_id,))
+
+    conn.commit()
+    conn.close()
+
+
+def update_score(chat_id, correct):
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    if correct:
+
+        cursor.execute("""
+            UPDATE students
+            SET score = score + 10,
+                correct = correct + 1
+            WHERE chat_id = ?
+        """, (chat_id,))
+
+    else:
+
+        cursor.execute("""
+            UPDATE students
+            SET wrong = wrong + 1
+            WHERE chat_id = ?
+        """, (chat_id,))
+
+    conn.commit()
+    conn.close()
 
 
 # =========================================================
 # TELEGRAM
 # =========================================================
 
-def telegram_request(method, payload=None):
+def telegram_request(method, data):
 
     try:
 
         response = requests.post(
             f"{TELEGRAM_API}/{method}",
-            json=payload or {},
-            timeout=20
+            json=data,
+            timeout=30
         )
 
-        print(
-            "Telegram:",
-            method,
-            response.status_code
-        )
+        result = response.json()
 
-        return response.json()
+        if not result.get("ok"):
+            print("Telegram Error:", result)
+
+        return result
 
     except Exception as e:
 
-        print(
-            "Telegram error:",
-            repr(e)
-        )
-
-        return {}
+        print("Telegram Exception:", e)
+        return None
 
 
 def send_message(chat_id, text, keyboard=None):
 
-    payload = {
+    data = {
         "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
+        "text": text
     }
 
     if keyboard:
-        payload["reply_markup"] = keyboard
+        data["reply_markup"] = keyboard
 
     return telegram_request(
         "sendMessage",
-        payload
-    )
-
-
-def edit_message(
-    chat_id,
-    message_id,
-    text,
-    keyboard=None
-):
-
-    payload = {
-        "chat_id": chat_id,
-        "message_id": message_id,
-        "text": text,
-        "parse_mode": "HTML",
-    }
-
-    if keyboard:
-        payload["reply_markup"] = keyboard
-
-    return telegram_request(
-        "editMessageText",
-        payload
+        data
     )
 
 
@@ -353,930 +182,450 @@ def main_keyboard():
 
     return {
         "keyboard": [
-            [
-                {
-                    "text": "🇩🇿 Ligue 1"
-                }
-            ],
-            [
-                {
-                    "text": "🇩🇿 Ligue 2"
-                }
-            ],
+
+            ["🎲 سؤال عشوائي"],
+
+            ["📅 أسئلة التواريخ"],
+
+            ["🇩🇿 تاريخ الجزائر"],
+
+            ["🌍 التاريخ العالمي"],
+
+            ["📝 اختبار 10 أسئلة"],
+
+            ["📊 نتائجي"]
+
         ],
-        "resize_keyboard": True,
-        "one_time_keyboard": False,
+
+        "resize_keyboard": True
     }
 
 
 # =========================================================
-# WEB
+# QUESTIONS DATABASE
+# يمكنك إضافة مئات الأسئلة هنا
 # =========================================================
 
-def fetch_page(url):
+QUESTIONS = [
 
-    try:
+    {
+        "category": "dates",
 
-        print(
-            "Fetching:",
-            url
-        )
+        "question":
+        "في أي سنة اندلعت الثورة التحريرية الجزائرية؟",
 
-        response = requests.get(
-            url,
-            headers=HEADERS,
-            timeout=30
-        )
+        "options": [
+            "1954",
+            "1962",
+            "1945",
+            "1830"
+        ],
 
-        print(
-            "HTTP:",
-            response.status_code
-        )
+        "correct": 0
+    },
 
-        if response.status_code != 200:
-            return None
+    {
+        "category": "dates",
 
-        return response.text
+        "question":
+        "في أي سنة استقلت الجزائر؟",
 
-    except Exception as e:
+        "options": [
+            "1954",
+            "1962",
+            "1965",
+            "1945"
+        ],
 
-        print(
-            "Fetch error:",
-            repr(e)
-        )
+        "correct": 1
+    },
 
-        return None
+    {
+        "category": "algeria",
 
+        "question":
+        "من هو قائد المنطقة التاريخية الأولى أثناء الثورة التحريرية؟",
 
-def extract_lines(html):
+        "options": [
+            "مصطفى بن بولعيد",
+            "ديدوش مراد",
+            "العربي بن مهيدي",
+            "كريم بلقاسم"
+        ],
 
-    soup = BeautifulSoup(
-        html,
-        "html.parser"
-    )
+        "correct": 0
+    },
 
-    for tag in soup(
-        [
-            "script",
-            "style",
-            "noscript",
-            "svg",
-        ]
-    ):
-        tag.decompose()
+    {
+        "category": "algeria",
 
-    text = soup.get_text("\n")
+        "question":
+        "في أي تاريخ اندلعت الثورة التحريرية الجزائرية؟",
 
-    lines = []
+        "options": [
+            "1 نوفمبر 1954",
+            "5 جويلية 1962",
+            "8 ماي 1945",
+            "19 مارس 1962"
+        ],
 
-    for line in text.splitlines():
+        "correct": 0
+    },
 
-        line = clean_line(line)
+    {
+        "category": "world",
 
-        if line:
-            lines.append(line)
+        "question":
+        "ما هي المنظمة الدولية التي تأسست سنة 1945؟",
 
-    return lines
+        "options": [
+            "حلف الناتو",
+            "الأمم المتحدة",
+            "حلف وارسو",
+            "الاتحاد الأوروبي"
+        ],
 
+        "correct": 1
+    },
 
-# =========================================================
-# L1
-# =========================================================
+    {
+        "category": "world",
 
-MONTHS = {
-    "janvier": 1,
-    "fevrier": 2,
-    "février": 2,
-    "mars": 3,
-    "avril": 4,
-    "mai": 5,
-    "juin": 6,
-    "juillet": 7,
-    "aout": 8,
-    "août": 8,
-    "septembre": 9,
-    "octobre": 10,
-    "novembre": 11,
-    "decembre": 12,
-    "décembre": 12,
-}
+        "question":
+        "في أي سنة تأسس حلف شمال الأطلسي؟",
 
+        "options": [
+            "1945",
+            "1949",
+            "1955",
+            "1961"
+        ],
 
-def parse_date_line(line):
+        "correct": 1
+    },
 
-    normalized = normalize_text(line)
+    {
+        "category": "world",
 
-    pattern = (
-        r"(?:lundi|mardi|mercredi|jeudi|"
-        r"vendredi|samedi|dimanche)"
-        r"\s+"
-        r"(\d{1,2})"
-        r"\s+"
-        r"([a-zéûôîà]+)"
-        r"\s+"
-        r"(\d{4})"
-    )
+        "question":
+        "في أي سنة تأسس حلف وارسو؟",
 
-    match = re.search(
-        pattern,
-        normalized
-    )
+        "options": [
+            "1949",
+            "1955",
+            "1962",
+            "1945"
+        ],
 
-    if not match:
-        return None
+        "correct": 1
+    },
 
-    day = int(match.group(1))
-    month_name = match.group(2)
-    year = int(match.group(3))
+    {
+        "category": "dates",
 
-    month = MONTHS.get(
-        month_name
-    )
+        "question":
+        "في أي سنة وقعت أحداث 8 ماي في الجزائر؟",
 
-    if not month:
-        return None
+        "options": [
+            "1939",
+            "1945",
+            "1954",
+            "1962"
+        ],
 
-    try:
+        "correct": 1
+    },
 
-        return datetime(
-            year,
-            month,
-            day,
-            tzinfo=ALGIERS_TZ
-        ).date()
+    {
+        "category": "world",
 
-    except Exception:
+        "question":
+        "من هو أول رئيس للولايات المتحدة الأمريكية بعد الحرب العالمية الثانية؟",
 
-        return None
+        "options": [
+            "فرانكلين روزفلت",
+            "هاري ترومان",
+            "جون كينيدي",
+            "ريتشارد نيكسون"
+        ],
 
+        "correct": 1
+    },
 
-def parse_l1_today():
+    {
+        "category": "algeria",
 
-    html = fetch_page(
-        L1_URL
-    )
+        "question":
+        "ما هو التنظيم السياسي الذي قاد الثورة التحريرية الجزائرية؟",
 
-    if not html:
-        return []
+        "options": [
+            "حزب الشعب الجزائري",
+            "جبهة التحرير الوطني",
+            "نجم شمال إفريقيا",
+            "جمعية العلماء المسلمين"
+        ],
 
-    lines = extract_lines(
-        html
-    )
+        "correct": 1
+    },
 
-    today = datetime.now(
-        ALGIERS_TZ
-    ).date()
+    {
+        "category": "dates",
 
-    known_teams = list(
-        L1_STRENGTH.keys()
-    )
+        "question":
+        "في أي سنة تم توقيع اتفاقيات إيفيان؟",
 
-    matches = []
+        "options": [
+            "1958",
+            "1960",
+            "1962",
+            "1965"
+        ],
 
-    current_date = None
+        "correct": 2
+    },
 
-    for line in lines:
+    {
+        "category": "algeria",
 
-        parsed_date = parse_date_line(
-            line
-        )
+        "question":
+        "من هو أحد مفجري الثورة التحريرية الجزائرية؟",
 
-        if parsed_date:
+        "options": [
+            "مصطفى بن بولعيد",
+            "هواري بومدين",
+            "أحمد بن بلة",
+            "فرحات عباس"
+        ],
 
-            current_date = parsed_date
-
-            continue
-
-        if current_date != today:
-            continue
-
-        time_match = re.search(
-            r"\b(\d{1,2}:\d{2})\b",
-            line
-        )
-
-        if not time_match:
-            continue
-
-        match_time = time_match.group(1)
-
-        teams_text = re.sub(
-            r"\b\d{1,2}:\d{2}\b",
-            "",
-            line
-        ).strip()
-
-        found = []
-
-        normalized_line = normalize_text(
-            teams_text
-        )
-
-        for team in known_teams:
-
-            key = normalize_text(
-                team
-            )
-
-            if key in normalized_line:
-
-                found.append(
-                    (
-                        len(key),
-                        team
-                    )
-                )
-
-        if len(found) < 2:
-            continue
-
-        found.sort(
-            reverse=True
-        )
-
-        home = found[0][1]
-        away = found[1][1]
-
-        if home == away:
-            continue
-
-        matches.append(
-            {
-                "league": "Ligue 1",
-                "home": home,
-                "away": away,
-                "time": match_time,
-            }
-        )
-
-    unique = []
-
-    seen = set()
-
-    for match in matches:
-
-        key = (
-            match["home"],
-            match["away"],
-            match["time"],
-        )
-
-        if key in seen:
-            continue
-
-        seen.add(key)
-
-        unique.append(match)
-
-    print(
-        "L1 matches:",
-        unique
-    )
-
-    return unique
-
-
-# =========================================================
-# L2
-# =========================================================
-
-def get_l2_matches():
-
-    html = fetch_page(
-        L2_URL
-    )
-
-    if not html:
-        return []
-
-    lines = extract_lines(
-        html
-    )
-
-    today = datetime.now(
-        ALGIERS_TZ
-    ).date()
-
-    # Ligue 2 2026/27 opening date.
-    # This is only used to identify the round.
-    season_start = datetime(
-        2026,
-        9,
-        4,
-        tzinfo=ALGIERS_TZ
-    ).date()
-
-    if today < season_start:
-        return []
-
-    days = (
-        today -
-        season_start
-    ).days
-
-    round_number = (
-        days // 7
-    ) + 1
-
-    if round_number < 1:
-        return []
-
-    if round_number > 30:
-        return []
-
-    print(
-        "L2 round:",
-        round_number
-    )
-
-    # Try to find the round in the article.
-    round_regex = re.compile(
-        rf"^{round_number}"
-        rf"(?:re|e|eme|ème)"
-        rf"\s+journ[ée]e$",
-        re.IGNORECASE
-    )
-
-    start_index = None
-
-    for i, line in enumerate(lines):
-
-        normalized = normalize_text(
-            line
-        )
-
-        if round_regex.search(
-            normalized
-        ):
-
-            start_index = i
-
-            break
-
-    # If the article structure cannot be parsed,
-    # use the published team pairs for round 1.
-    if start_index is None:
-
-        if round_number == 1:
-
-            return [
-                {
-                    "league": "Ligue 2",
-                    "home": home,
-                    "away": away,
-                    "time": "حسب البرنامج",
-                }
-
-                for home, away
-                in L2_MATCHES
-            ]
-
-        return []
-
-    section = lines[
-        start_index:
-    ]
-
-    # Stop at the next round.
-    next_round_pattern = re.compile(
-        r"^\d+"
-        r"(?:re|e|eme|ème)"
-        r"\s+journ[ée]e$",
-        re.IGNORECASE
-    )
-
-    for i, line in enumerate(
-        section[1:],
-        start=1
-    ):
-
-        if next_round_pattern.search(
-            normalize_text(line)
-        ):
-
-            section = section[:i]
-
-            break
-
-    section_text = normalize_text(
-        " ".join(section)
-    )
-
-    matches = []
-
-    for home, away in L2_MATCHES:
-
-        home_found = (
-            normalize_text(home)
-            in section_text
-        )
-
-        away_found = (
-            normalize_text(away)
-            in section_text
-        )
-
-        if home_found and away_found:
-
-            matches.append(
-                {
-                    "league": "Ligue 2",
-                    "home": home,
-                    "away": away,
-                    "time": "حسب البرنامج",
-                }
-            )
-
-    print(
-        "L2 matches:",
-        matches
-    )
-
-    return matches
-
-
-# =========================================================
-# MATCHES
-# =========================================================
-
-def get_matches(league):
-
-    if league == "Ligue 1":
-        return parse_l1_today()
-
-    if league == "Ligue 2":
-        return get_l2_matches()
-
-    return []
-
-
-# =========================================================
-# PREDICTION
-# =========================================================
-
-def get_strength(team, league):
-
-    if league == "Ligue 1":
-        table = L1_STRENGTH
-    else:
-        table = L2_STRENGTH
-
-    return table.get(
-        team,
-        60
-    )
-
-
-def poisson_probability(
-    lam,
-    goals
-):
-
-    return (
-        math.exp(-lam)
-        *
-        (lam ** goals)
-        /
-        math.factorial(goals)
-    )
-
-
-def calculate_prediction(
-    home,
-    away,
-    league
-):
-
-    home_strength = get_strength(
-        home,
-        league
-    )
-
-    away_strength = get_strength(
-        away,
-        league
-    )
-
-    difference = (
-        home_strength -
-        away_strength
-    )
-
-    # Model baseline
-    home_xg = (
-        1.15 +
-        difference / 45
-    )
-
-    away_xg = (
-        0.85 -
-        difference / 90
-    )
-
-    home_xg = max(
-        0.20,
-        min(
-            home_xg,
-            2.70
-        )
-    )
-
-    away_xg = max(
-        0.15,
-        min(
-            away_xg,
-            2.30
-        )
-    )
-
-    home_win = 0
-    draw = 0
-    away_win = 0
-
-    best_score = (
-        0,
-        0
-    )
-
-    best_probability = 0
-
-    for hg in range(7):
-
-        for ag in range(7):
-
-            probability = (
-                poisson_probability(
-                    home_xg,
-                    hg
-                )
-                *
-                poisson_probability(
-                    away_xg,
-                    ag
-                )
-            )
-
-            if hg > ag:
-                home_win += probability
-
-            elif hg == ag:
-                draw += probability
-
-            else:
-                away_win += probability
-
-            if probability > best_probability:
-
-                best_probability = probability
-
-                best_score = (
-                    hg,
-                    ag
-                )
-
-    total = (
-        home_win +
-        draw +
-        away_win
-    )
-
-    home_pct = round(
-        home_win /
-        total *
-        100
-    )
-
-    draw_pct = round(
-        draw /
-        total *
-        100
-    )
-
-    away_pct = (
-        100 -
-        home_pct -
-        draw_pct
-    )
-
-    if (
-        home_pct >= draw_pct
-        and
-        home_pct >= away_pct
-    ):
-
-        winner = home
-        winner_icon = "🏠"
-
-    elif (
-        away_pct >= home_pct
-        and
-        away_pct >= draw_pct
-    ):
-
-        winner = away
-        winner_icon = "✈️"
-
-    else:
-
-        winner = "تعادل"
-        winner_icon = "🤝"
-
-    total_xg = (
-        home_xg +
-        away_xg
-    )
-
-    btts = (
-        1 -
-        math.exp(-home_xg)
-    ) * (
-        1 -
-        math.exp(-away_xg)
-    )
-
-    under_25 = 0
-
-    for hg in range(3):
-
-        for ag in range(3 - hg):
-
-            under_25 += (
-                poisson_probability(
-                    home_xg,
-                    hg
-                )
-                *
-                poisson_probability(
-                    away_xg,
-                    ag
-                )
-            )
-
-    over_25 = 1 - under_25
-
-    cards = 3.4
-
-    if abs(difference) > 15:
-        cards += 0.3
-
-    if total_xg < 1.8:
-        cards += 0.2
-
-    return {
-        "winner": winner,
-        "winner_icon": winner_icon,
-
-        "home_pct": home_pct,
-        "draw_pct": draw_pct,
-        "away_pct": away_pct,
-
-        "home_xg": round(
-            home_xg,
-            2
-        ),
-
-        "away_xg": round(
-            away_xg,
-            2
-        ),
-
-        "total_xg": round(
-            total_xg,
-            2
-        ),
-
-        "score": (
-            f"{best_score[0]}"
-            f" - "
-            f"{best_score[1]}"
-        ),
-
-        "btts": round(
-            btts * 100
-        ),
-
-        "over25": round(
-            over_25 * 100
-        ),
-
-        "cards": round(
-            cards,
-            1
-        ),
-
-        "home_strength": home_strength,
-        "away_strength": away_strength,
+        "correct": 0
     }
 
-
-# =========================================================
-# ANALYSIS
-# =========================================================
-
-def build_analysis(match):
-
-    league = match["league"]
-
-    home = match["home"]
-
-    away = match["away"]
-
-    time = match.get(
-        "time",
-        "غير محدد"
-    )
-
-    prediction = calculate_prediction(
-        home,
-        away,
-        league
-    )
-
-    return (
-        "🔎 <b>تحليل المباراة</b>\n\n"
-
-        f"🏆 البطولة: <b>{league}</b>\n"
-        f"⚽ <b>{home} × {away}</b>\n"
-        f"🕒 الوقت: <b>{time}</b>\n\n"
-
-        "━━━━━━━━━━━━━━\n"
-
-        "🏆 <b>التوقع الرئيسي</b>\n"
-        f"{prediction['winner_icon']} "
-        f"<b>{prediction['winner']}</b>\n\n"
-
-        "📊 <b>احتمالات 1X2</b>\n"
-        f"🏠 {home}: "
-        f"<b>{prediction['home_pct']}%</b>\n"
-        f"🤝 التعادل: "
-        f"<b>{prediction['draw_pct']}%</b>\n"
-        f"✈️ {away}: "
-        f"<b>{prediction['away_pct']}%</b>\n\n"
-
-        "⚽ <b>الأهداف المتوقعة</b>\n"
-        f"🏠 {home}: "
-        f"{prediction['home_xg']}\n"
-        f"✈️ {away}: "
-        f"{prediction['away_xg']}\n"
-        f"📈 المجموع: "
-        f"{prediction['total_xg']}\n\n"
-
-        "🎯 <b>النتيجة الأقرب:</b> "
-        f"<b>{prediction['score']}</b>\n\n"
-
-        "🥅 <b>الفريقان يسجلان:</b> "
-        f"{prediction['btts']}%\n"
-
-        "⚽ <b>أكثر من 2.5 هدف:</b> "
-        f"{prediction['over25']}%\n"
-
-        "🟨 <b>البطاقات المتوقعة:</b> "
-        f"حوالي {prediction['cards']}\n\n"
-
-        "📈 <b>قوة الفريقين في النموذج</b>\n"
-        f"🏠 {home}: "
-        f"{prediction['home_strength']}/100\n"
-        f"✈️ {away}: "
-        f"{prediction['away_strength']}/100\n\n"
-
-        "━━━━━━━━━━━━━━\n"
-
-        "ℹ️ <i>التوقع حسابي وليس ضمانًا "
-        "للنتيجة. البطاقات تقديرية وليست "
-        "إحصائية مباشرة.</i>"
-    )
+]
 
 
 # =========================================================
-# INLINE BUTTONS
+# SEND QUESTION
 # =========================================================
 
-def matches_keyboard(matches):
+def send_question(chat_id, category=None):
 
-    rows = []
+    questions = QUESTIONS
 
-    for index, match in enumerate(
-        matches
-    ):
+    if category:
 
-        rows.append(
-            [
-                {
-                    "text": (
-                        f"🔎 تحليل "
-                        f"{match['home']} "
-                        f"× "
-                        f"{match['away']}"
-                    ),
-                    "callback_data": (
-                        f"ANALYZE|{index}"
-                    ),
-                }
-            ]
-        )
-
-    return {
-        "inline_keyboard": rows
-    }
-
-
-# =========================================================
-# CACHE
-# =========================================================
-
-def save_matches(
-    chat_id,
-    matches
-):
-
-    MATCH_CACHE[
-        str(chat_id)
-    ] = matches
-
-
-def cached_match(
-    chat_id,
-    index
-):
-
-    matches = MATCH_CACHE.get(
-        str(chat_id),
-        []
-    )
-
-    try:
-
-        return matches[
-            int(index)
+        questions = [
+            q for q in QUESTIONS
+            if q["category"] == category
         ]
 
-    except Exception:
-
-        return None
-
-
-# =========================================================
-# SEND LEAGUE
-# =========================================================
-
-def show_league(
-    chat_id,
-    league
-):
-
-    send_message(
-        chat_id,
-        "⏳ جاري البحث عن مباريات "
-        f"<b>{league}</b>...",
-    )
-
-    matches = get_matches(
-        league
-    )
-
-    save_matches(
-        chat_id,
-        matches
-    )
-
-    if not matches:
+    if not questions:
 
         send_message(
             chat_id,
-            f"⚠️ لا توجد مباريات "
-            f"<b>{league}</b> متاحة حاليًا.\n\n"
-            "قد يكون السبب عدم وجود مباريات "
-            "اليوم أو تغير تنسيق المصدر.",
-            main_keyboard()
+            "❌ لا توجد أسئلة في هذا القسم حاليًا."
         )
 
         return
 
-    text = (
-        f"🇩🇿 <b>{league}</b>\n\n"
-        "⚽ <b>المباريات المتاحة:</b>\n\n"
+    question_id = random.randint(
+        100000,
+        999999
     )
 
-    for match in matches:
+    question = random.choice(
+        questions
+    )
+
+    text = (
+        "━━━━━━━━━━━━━━━━━━\n"
+        "📚 سؤال تاريخ\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        f"❓ {question['question']}\n\n"
+    )
+
+    keyboard = []
+
+    letters = ["A", "B", "C", "D"]
+
+    for index, option in enumerate(
+        question["options"]
+    ):
 
         text += (
-            f"⚽ {match['home']} "
-            f"× "
-            f"{match['away']}\n"
-            f"🕒 {match['time']}\n\n"
+            f"{letters[index]}) {option}\n"
         )
 
-    text += (
-        "👇 <b>اختر مباراة للحصول على التحليل:</b>"
-    )
+        keyboard.append([
+
+            {
+                "text":
+                f"{letters[index]}️⃣ {option}",
+
+                "callback_data":
+                f"answer:{question_id}:{index}:{question['correct']}"
+            }
+
+        ])
+
+    # حفظ السؤال مؤقتًا في الذاكرة
+    ACTIVE_QUESTIONS[question_id] = question
 
     send_message(
         chat_id,
         text,
-        matches_keyboard(
-            matches
-        )
+        {
+            "inline_keyboard": keyboard
+        }
     )
+
+
+# =========================================================
+# ACTIVE QUESTIONS
+# =========================================================
+
+ACTIVE_QUESTIONS = {}
+
+
+# =========================================================
+# RESULTS
+# =========================================================
+
+def show_results(chat_id):
+
+    student = get_student(chat_id)
+
+    if not student:
+
+        return
+
+    score = student[2]
+    correct = student[3]
+    wrong = student[4]
+
+    total = correct + wrong
+
+    if total > 0:
+
+        percentage = (
+            correct / total * 100
+        )
+
+    else:
+
+        percentage = 0
+
+    text = f"""
+━━━━━━━━━━━━━━━━━━
+📊 نتائجك
+━━━━━━━━━━━━━━━━━━
+
+⭐ النقاط: {score}
+
+✅ إجابات صحيحة: {correct}
+
+❌ إجابات خاطئة: {wrong}
+
+📈 نسبة النجاح:
+{percentage:.1f}%
+
+━━━━━━━━━━━━━━━━━━
+"""
+
+    send_message(
+        chat_id,
+        text
+    )
+
+
+# =========================================================
+# CALLBACK HANDLER
+# =========================================================
+
+def handle_callback(callback):
+
+    callback_id = callback.get("id")
+
+    message = callback.get(
+        "message",
+        {}
+    )
+
+    chat_id = (
+        message
+        .get("chat", {})
+        .get("id")
+    )
+
+    data = callback.get(
+        "data",
+        ""
+    )
+
+    answer_callback(callback_id)
+
+    # =====================================================
+    # ANSWER
+    # =====================================================
+
+    if data.startswith("answer:"):
+
+        parts = data.split(":")
+
+        question_id = int(parts[1])
+
+        selected = int(parts[2])
+
+        correct_answer = int(parts[3])
+
+        if selected == correct_answer:
+
+            update_score(
+                chat_id,
+                True
+            )
+
+            send_message(
+                chat_id,
+                "✅ إجابة صحيحة! 🎉\n\n"
+                "⭐ ربحت 10 نقاط."
+            )
+
+        else:
+
+            update_score(
+                chat_id,
+                False
+            )
+
+            question = ACTIVE_QUESTIONS.get(
+                question_id
+            )
+
+            correct_text = ""
+
+            if question:
+
+                correct_text = (
+                    question["options"]
+                    [correct_answer]
+                )
+
+            send_message(
+                chat_id,
+                "❌ إجابة خاطئة.\n\n"
+                f"✅ الإجابة الصحيحة هي:\n"
+                f"{correct_text}"
+            )
+
+        # حذف السؤال
+        ACTIVE_QUESTIONS.pop(
+            question_id,
+            None
+        )
+
+        return "OK"
+
+    return "OK"
 
 
 # =========================================================
@@ -1287,85 +636,18 @@ def show_league(
     "/telegram/webhook",
     methods=["POST"]
 )
-def telegram_webhook():
+def webhook():
 
-    update = request.get_json(
-        silent=True
-    ) or {}
-
-    print(
-        "Telegram update received"
-    )
-
-    # -----------------------------------------------------
-    # MESSAGE
-    # -----------------------------------------------------
-
-    message = update.get(
-        "message"
-    )
-
-    if message:
-
-        chat_id = message[
-            "chat"
-        ][
-            "id"
-        ]
-
-        text = message.get(
-            "text",
-            ""
-        ).strip()
-
-        print(
-            "Message:",
-            text
+    update = (
+        request.get_json(
+            silent=True
         )
+        or {}
+    )
 
-        if text == "/start":
-
-            send_message(
-                chat_id,
-
-                "⚽ <b>مرحبًا بك</b>\n\n"
-                "🇩🇿 بوت تحليل كرة القدم الجزائرية\n\n"
-                "اختر البطولة:",
-                
-                main_keyboard()
-            )
-
-            return "OK"
-
-        if text in (
-            "🇩🇿 Ligue 1",
-            "Ligue 1"
-        ):
-
-            show_league(
-                chat_id,
-                "Ligue 1"
-            )
-
-            return "OK"
-
-        if text in (
-            "🇩🇿 Ligue 2",
-            "Ligue 2"
-        ):
-
-            show_league(
-                chat_id,
-                "Ligue 2"
-            )
-
-            return "OK"
-
-        return "OK"
-
-    # -----------------------------------------------------
+    # =====================================================
     # CALLBACK
-    # -----------------------------------------------------
+    # =====================================================
 
     callback = update.get(
         "callback_query"
@@ -1373,178 +655,194 @@ def telegram_webhook():
 
     if callback:
 
-        callback_id = callback[
-            "id"
-        ]
-
-        answer_callback(
-            callback_id
+        return handle_callback(
+            callback
         )
 
-        data = callback.get(
-            "data",
-            ""
-        )
+    # =====================================================
+    # MESSAGE
+    # =====================================================
 
-        message = callback.get(
-            "message",
-            {}
-        )
-
-        chat_id = (
-            message
-            .get("chat", {})
-            .get("id")
-        )
-
-        message_id = message.get(
-            "message_id"
-        )
-
-        if data.startswith(
-            "ANALYZE|"
-        ):
-
-            index = data.split(
-                "|",
-                1
-            )[1]
-
-            match = cached_match(
-                chat_id,
-                index
-            )
-
-            if not match:
-
-                edit_message(
-                    chat_id,
-                    message_id,
-
-                    "⚠️ انتهت صلاحية القائمة.\n"
-                    "اضغط على الدوري من جديد."
-                )
-
-                return "OK"
-
-            analysis = build_analysis(
-                match
-            )
-
-            keyboard = {
-                "inline_keyboard": [
-                    [
-                        {
-                            "text": (
-                                "⬅️ رجوع للمباريات"
-                            ),
-                            "callback_data": "BACK",
-                        }
-                    ]
-                ]
-            }
-
-            edit_message(
-                chat_id,
-                message_id,
-                analysis,
-                keyboard
-            )
-
-            return "OK"
-
-        if data == "BACK":
-
-            matches = MATCH_CACHE.get(
-                str(chat_id),
-                []
-            )
-
-            if not matches:
-
-                edit_message(
-                    chat_id,
-                    message_id,
-                    "⚠️ لا توجد قائمة محفوظة."
-                )
-
-                return "OK"
-
-            league = matches[
-                0
-            ][
-                "league"
-            ]
-
-            text = (
-                f"🇩🇿 <b>{league}</b>\n\n"
-                "⚽ <b>المباريات:</b>\n\n"
-            )
-
-            for match in matches:
-
-                text += (
-                    f"⚽ {match['home']} "
-                    f"× "
-                    f"{match['away']}\n"
-                    f"🕒 {match['time']}\n\n"
-                )
-
-            text += (
-                "👇 <b>اختر مباراة:</b>"
-            )
-
-            edit_message(
-                chat_id,
-                message_id,
-                text,
-                matches_keyboard(
-                    matches
-                )
-            )
-
-            return "OK"
-
-    return "OK"
-
-
-# =========================================================
-# SECOND ROUTE
-# Compatibility with old webhook
-# =========================================================
-
-@app.route(
-    "/webhook",
-    methods=["POST"]
-)
-def old_webhook():
-
-    return telegram_webhook()
-
-
-# =========================================================
-# HEALTH CHECK
-# =========================================================
-
-@app.route(
-    "/",
-    methods=["GET"]
-)
-def index():
-
-    return (
-        "⚽ Algeria Football Bot "
-        "is running."
+    message = update.get(
+        "message"
     )
 
+    if not message:
 
-@app.route(
-    "/health",
-    methods=["GET"]
-)
-def health():
+        return "OK"
+
+    chat_id = (
+        message
+        .get("chat", {})
+        .get("id")
+    )
+
+    text = (
+        message
+        .get("text", "")
+        .strip()
+    )
+
+    # إنشاء المستخدم
+    create_student(chat_id)
+
+    student = get_student(chat_id)
+
+    access_granted = student[1]
+
+    # =====================================================
+    # START
+    # =====================================================
+
+    if text == "/start":
+
+        if access_granted:
+
+            send_message(
+                chat_id,
+                "🇩🇿📚 مرحبًا بك مجددًا!\n\n"
+                "اختر نوع الأسئلة:",
+                main_keyboard()
+            )
+
+        else:
+
+            send_message(
+                chat_id,
+                "🇩🇿📚 مرحبًا بك في بوت\n"
+                "تاريخ البكالوريا الجزائرية\n\n"
+                "🔐 أدخل كود الدخول:"
+            )
+
+        return "OK"
+
+    # =====================================================
+    # ACCESS CODE
+    # =====================================================
+
+    if not access_granted:
+
+        if text == ACCESS_CODE:
+
+            grant_access(chat_id)
+
+            send_message(
+                chat_id,
+                "✅ تم الدخول بنجاح! 🎉\n\n"
+                "📚 مرحبًا بك في بوت تاريخ "
+                "البكالوريا الجزائرية 🇩🇿\n\n"
+                "اختر القسم:",
+                main_keyboard()
+            )
+
+        else:
+
+            send_message(
+                chat_id,
+                "❌ كود الدخول غير صحيح.\n\n"
+                "🔐 حاول مرة أخرى:"
+            )
+
+        return "OK"
+
+    # =====================================================
+    # RANDOM QUESTION
+    # =====================================================
+
+    if text == "🎲 سؤال عشوائي":
+
+        send_question(chat_id)
+
+        return "OK"
+
+    # =====================================================
+    # DATES
+    # =====================================================
+
+    if text == "📅 أسئلة التواريخ":
+
+        send_question(
+            chat_id,
+            "dates"
+        )
+
+        return "OK"
+
+    # =====================================================
+    # ALGERIA
+    # =====================================================
+
+    if text == "🇩🇿 تاريخ الجزائر":
+
+        send_question(
+            chat_id,
+            "algeria"
+        )
+
+        return "OK"
+
+    # =====================================================
+    # WORLD
+    # =====================================================
+
+    if text == "🌍 التاريخ العالمي":
+
+        send_question(
+            chat_id,
+            "world"
+        )
+
+        return "OK"
+
+    # =====================================================
+    # EXAM
+    # =====================================================
+
+    if text == "📝 اختبار 10 أسئلة":
+
+        send_message(
+            chat_id,
+            "📝 سيتم إرسال أسئلة عشوائية.\n\n"
+            "ابدأ بالسؤال الأول 👇"
+        )
+
+        send_question(chat_id)
+
+        return "OK"
+
+    # =====================================================
+    # RESULTS
+    # =====================================================
+
+    if text == "📊 نتائجي":
+
+        show_results(chat_id)
+
+        return "OK"
+
+    # =====================================================
+    # UNKNOWN
+    # =====================================================
+
+    send_message(
+        chat_id,
+        "اختر أحد الأزرار من القائمة 👇",
+        main_keyboard()
+    )
 
     return "OK"
+
+
+# =========================================================
+# HOME
+# =========================================================
+
+@app.route("/")
+def home():
+
+    return (
+        "🇩🇿 History BAC Bot is running!"
+    )
 
 
 # =========================================================
@@ -1553,39 +851,14 @@ def health():
 
 if __name__ == "__main__":
 
-    print(
-        "================================="
-    )
-
-    print(
-        "⚽ ALGERIA FOOTBALL BOT"
-    )
-
-    print(
-        "🇩🇿 Ligue 1 + Ligue 2"
-    )
-
-    print(
-        "🚫 No football API"
-    )
-
-    print(
-        "🚫 No OpenAI"
-    )
-
-    print(
-        "📡 Webhook: /telegram/webhook"
-    )
-
-    print(
-        f"🚀 Port: {PORT}"
-    )
-
-    print(
-        "================================="
+    port = int(
+        os.getenv(
+            "PORT",
+            "10000"
+        )
     )
 
     app.run(
         host="0.0.0.0",
-        port=PORT
+        port=port
     )

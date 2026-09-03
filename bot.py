@@ -1,7 +1,9 @@
 import os
 import json
 import requests
+
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from flask import Flask, request
 from openai import OpenAI
@@ -13,7 +15,6 @@ from openai import OpenAI
 
 app = Flask(__name__)
 
-
 # =========================================================
 # ENVIRONMENT VARIABLES
 # =========================================================
@@ -23,14 +24,11 @@ FOOTBALL_DATA_API_KEY = os.getenv("FOOTBALL_DATA_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OWNER_CHAT_ID = os.getenv("OWNER_CHAT_ID")
 
-
-# =========================================================
-# API URLS
-# =========================================================
-
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
 FOOTBALL_API_URL = "https://api.football-data.org/v4"
+
+# توقيت الجزائر
+ALGERIA_TZ = ZoneInfo("Africa/Algiers")
 
 
 # =========================================================
@@ -44,8 +42,7 @@ if OPENAI_API_KEY:
         client = OpenAI(api_key=OPENAI_API_KEY)
         print("✅ OpenAI connected")
     except Exception as e:
-        print("❌ OpenAI Error:", e)
-
+        print("❌ OpenAI connection error:", e)
 else:
     print("⚠️ OPENAI_API_KEY غير موجود")
 
@@ -72,13 +69,14 @@ matches_cache = {}
 
 
 # =========================================================
-# SECURITY
+# OWNER
 # =========================================================
 
 def is_owner(chat_id):
 
     if not OWNER_CHAT_ID:
-        return True
+        print("⚠️ OWNER_CHAT_ID غير موجود")
+        return False
 
     return str(chat_id) == str(OWNER_CHAT_ID)
 
@@ -100,13 +98,13 @@ def telegram_request(method, data):
         result = response.json()
 
         if not result.get("ok"):
-            print("Telegram Error:", result)
+            print("❌ Telegram Error:", result)
 
         return result
 
     except Exception as e:
 
-        print("Telegram Exception:", e)
+        print("❌ Telegram Exception:", e)
 
         return None
 
@@ -121,12 +119,15 @@ def send_message(chat_id, text, keyboard=None):
     if keyboard:
         data["reply_markup"] = keyboard
 
-    return telegram_request("sendMessage", data)
+    return telegram_request(
+        "sendMessage",
+        data
+    )
 
 
 def answer_callback(callback_id):
 
-    telegram_request(
+    return telegram_request(
         "answerCallbackQuery",
         {
             "callback_query_id": callback_id
@@ -135,25 +136,18 @@ def answer_callback(callback_id):
 
 
 # =========================================================
-# MAIN MENU
+# MAIN KEYBOARD
 # =========================================================
 
 def main_keyboard():
 
     return {
-
         "keyboard": [
-
             ["⚽ مباريات اليوم"],
-
             ["📅 مباريات الغد"],
-
             ["🏆 الدوريات"],
-
             ["🤖 تحليل مباراة"]
-
         ],
-
         "resize_keyboard": True
     }
 
@@ -178,7 +172,10 @@ def football_get(endpoint, params=None):
 
     try:
 
-        print("⚽ Request:", url)
+        print("===================================")
+        print("⚽ FOOTBALL API REQUEST")
+        print("URL:", url)
+        print("PARAMS:", params)
 
         response = requests.get(
             url,
@@ -187,11 +184,16 @@ def football_get(endpoint, params=None):
             timeout=30
         )
 
-        print("📡 Status:", response.status_code)
+        print("STATUS:", response.status_code)
+
+        print(
+            "RESPONSE:",
+            response.text[:1500]
+        )
+
+        print("===================================")
 
         if response.status_code != 200:
-
-            print("❌ API Response:", response.text[:1000])
 
             return None
 
@@ -205,7 +207,26 @@ def football_get(endpoint, params=None):
 
 
 # =========================================================
-# GET MATCHES
+# DATE
+# =========================================================
+
+def algeria_today():
+
+    return datetime.now(
+        ALGERIA_TZ
+    ).strftime("%Y-%m-%d")
+
+
+def algeria_tomorrow():
+
+    return (
+        datetime.now(ALGERIA_TZ)
+        + timedelta(days=1)
+    ).strftime("%Y-%m-%d")
+
+
+# =========================================================
+# MATCHES
 # =========================================================
 
 def get_matches_by_date(date):
@@ -219,23 +240,29 @@ def get_matches_by_date(date):
     )
 
     if not data:
+
         return []
 
-    return data.get("matches", [])
+    return data.get(
+        "matches",
+        []
+    )
 
 
 def get_today_matches():
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = algeria_today()
+
+    print("📅 Algeria today:", today)
 
     return get_matches_by_date(today)
 
 
 def get_tomorrow_matches():
 
-    tomorrow = (
-        datetime.utcnow() + timedelta(days=1)
-    ).strftime("%Y-%m-%d")
+    tomorrow = algeria_tomorrow()
+
+    print("📅 Algeria tomorrow:", tomorrow)
 
     return get_matches_by_date(tomorrow)
 
@@ -246,7 +273,7 @@ def get_tomorrow_matches():
 
 def get_league_matches(league):
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = algeria_today()
 
     data = football_get(
         f"competitions/{league}/matches",
@@ -257,9 +284,13 @@ def get_league_matches(league):
     )
 
     if not data:
+
         return []
 
-    return data.get("matches", [])
+    return data.get(
+        "matches",
+        []
+    )
 
 
 # =========================================================
@@ -272,14 +303,14 @@ def show_leagues(chat_id):
 
     for code, name in LEAGUES.items():
 
-        keyboard.append([
-
-            {
-                "text": name,
-                "callback_data": f"league:{code}"
-            }
-
-        ])
+        keyboard.append(
+            [
+                {
+                    "text": name,
+                    "callback_data": f"league:{code}"
+                }
+            ]
+        )
 
     send_message(
         chat_id,
@@ -291,66 +322,127 @@ def show_leagues(chat_id):
 
 
 # =========================================================
+# FORMAT MATCH TIME
+# =========================================================
+
+def match_time(utc_date):
+
+    try:
+
+        dt = datetime.fromisoformat(
+            utc_date.replace(
+                "Z",
+                "+00:00"
+            )
+        )
+
+        local_time = dt.astimezone(
+            ALGERIA_TZ
+        )
+
+        return local_time.strftime(
+            "%H:%M"
+        )
+
+    except Exception:
+
+        return "غير معروف"
+
+
+# =========================================================
 # SHOW MATCHES
 # =========================================================
 
-def show_matches(chat_id, matches, title):
+def show_matches(
+    chat_id,
+    matches,
+    title
+):
 
     if not matches:
 
         send_message(
             chat_id,
-            "❌ لم أجد مباريات.\n\n"
-            "إذا كنت متأكدًا أن هناك مباريات، راجع FOOTBALL_DATA_API_KEY."
+            "❌ لا توجد مباريات متاحة من Football-Data لهذا اليوم.\n\n"
+            "قد يكون السبب أن البطولة أو المباراة غير موجودة ضمن التغطية المتاحة لحسابك."
         )
 
         return
 
-    keyboard = []
 
     text = f"{title}\n\n"
 
-    for match in matches[:30]:
+    keyboard = []
 
-        match_id = str(match.get("id"))
+    count = 0
 
-        home = match.get("homeTeam", {}).get("name", "Home")
-        away = match.get("awayTeam", {}).get("name", "Away")
+
+    for match in matches:
+
+        if count >= 30:
+            break
+
+        match_id = str(
+            match.get("id")
+        )
+
+        home = match.get(
+            "homeTeam",
+            {}
+        ).get(
+            "name",
+            "Home"
+        )
+
+        away = match.get(
+            "awayTeam",
+            {}
+        ).get(
+            "name",
+            "Away"
+        )
 
         competition = match.get(
-            "competition", {}
-        ).get("name", "")
+            "competition",
+            {}
+        ).get(
+            "name",
+            "غير معروف"
+        )
 
-        utc_date = match.get("utcDate", "")
+        utc_date = match.get(
+            "utcDate",
+            ""
+        )
 
-        matches_cache[match_id] = match
+        time = match_time(
+            utc_date
+        )
 
-        try:
+        matches_cache[
+            match_id
+        ] = match
 
-            dt = datetime.fromisoformat(
-                utc_date.replace("Z", "+00:00")
-            )
-
-            time = dt.strftime("%H:%M UTC")
-
-        except:
-
-            time = "غير معروف"
 
         text += (
             f"⚽ {home} × {away}\n"
             f"🏆 {competition}\n"
-            f"🕒 {time}\n\n"
+            f"🕒 {time} بتوقيت الجزائر\n\n"
         )
 
-        keyboard.append([
 
-            {
-                "text": f"🤖 تحليل {home} × {away}",
-                "callback_data": f"analysis:{match_id}"
-            }
+        keyboard.append(
+            [
+                {
+                    "text": f"🤖 تحليل {home} × {away}",
+                    "callback_data":
+                        f"analysis:{match_id}"
+                }
+            ]
+        )
 
-        ])
+        count += 1
+
 
     send_message(
         chat_id,
@@ -362,10 +454,15 @@ def show_matches(chat_id, matches, title):
 
 
 # =========================================================
-# GET TEAM RECENT MATCHES
+# TEAM RECENT MATCHES
 # =========================================================
 
 def get_team_matches(team_id):
+
+    if not team_id:
+
+        return []
+
 
     data = football_get(
         f"teams/{team_id}/matches",
@@ -376,18 +473,25 @@ def get_team_matches(team_id):
     )
 
     if not data:
+
         return []
 
-    return data.get("matches", [])
+    return data.get(
+        "matches",
+        []
+    )
 
 
 # =========================================================
-# GET STANDINGS
+# STANDINGS
 # =========================================================
 
-def get_standings(competition_code):
+def get_standings(
+    competition_code
+):
 
     if not competition_code:
+
         return None
 
     return football_get(
@@ -396,45 +500,77 @@ def get_standings(competition_code):
 
 
 # =========================================================
-# PREPARE DATA FOR AI
+# PREPARE AI DATA
 # =========================================================
 
 def prepare_analysis_data(match):
 
-    home_team = match.get("homeTeam", {})
-    away_team = match.get("awayTeam", {})
+    home_team = match.get(
+        "homeTeam",
+        {}
+    )
 
-    home_id = home_team.get("id")
-    away_id = away_team.get("id")
+    away_team = match.get(
+        "awayTeam",
+        {}
+    )
 
-    competition = match.get("competition", {})
+    home_id = home_team.get(
+        "id"
+    )
 
-    competition_code = competition.get("code")
+    away_id = away_team.get(
+        "id"
+    )
 
-    # آخر مباريات الفريقين
-    home_matches = get_team_matches(home_id) if home_id else []
-    away_matches = get_team_matches(away_id) if away_id else []
+    competition = match.get(
+        "competition",
+        {}
+    )
 
-    # ترتيب الدوري
-    standings = get_standings(competition_code)
+    competition_code = competition.get(
+        "code"
+    )
 
-    data = {
+
+    print(
+        "📊 Preparing analysis:",
+        home_team.get("name"),
+        "vs",
+        away_team.get("name")
+    )
+
+
+    home_matches = get_team_matches(
+        home_id
+    )
+
+    away_matches = get_team_matches(
+        away_id
+    )
+
+    standings = get_standings(
+        competition_code
+    )
+
+
+    return {
 
         "match": match,
 
-        "home_recent_matches": home_matches,
+        "home_recent_matches":
+            home_matches,
 
-        "away_recent_matches": away_matches,
+        "away_recent_matches":
+            away_matches,
 
-        "standings": standings
-
+        "standings":
+            standings
     }
-
-    return data
 
 
 # =========================================================
-# AI ANALYSIS
+# OPENAI ANALYSIS
 # =========================================================
 
 def analyze_match_with_ai(data):
@@ -442,38 +578,57 @@ def analyze_match_with_ai(data):
     if not client:
 
         return (
-            "❌ OpenAI غير متصل.\n"
-            "أضف OPENAI_API_KEY في Render."
+            "❌ OpenAI غير متصل.\n\n"
+            "تأكد من وجود:\n"
+            "OPENAI_API_KEY\n"
+            "في Render Environment."
         )
+
 
     match = data["match"]
 
     home = match.get(
-        "homeTeam", {}
-    ).get("name")
+        "homeTeam",
+        {}
+    ).get(
+        "name",
+        "الفريق المضيف"
+    )
 
     away = match.get(
-        "awayTeam", {}
-    ).get("name")
+        "awayTeam",
+        {}
+    ).get(
+        "name",
+        "الفريق الضيف"
+    )
 
     competition = match.get(
-        "competition", {}
-    ).get("name")
+        "competition",
+        {}
+    ).get(
+        "name",
+        "غير معروف"
+    )
 
-    match_date = match.get("utcDate")
+    match_date = match.get(
+        "utcDate",
+        ""
+    )
 
-    # نرسل البيانات الحقيقية للذكاء الاصطناعي
+
     football_data = json.dumps(
         data,
         ensure_ascii=False,
         indent=2
     )
 
+
     prompt = f"""
 أنت محلل كرة قدم محترف.
 
-حلل المباراة التالية اعتمادًا فقط على البيانات
-الموجودة في JSON أدناه.
+حلل المباراة التالية اعتمادًا على البيانات
+الموجودة في JSON فقط.
 
 المباراة:
 {home} ضد {away}
@@ -485,11 +640,12 @@ def analyze_match_with_ai(data):
 {match_date}
 
 البيانات:
-
 {football_data}
 
-أريد منك إرجاع النتيجة باللغة العربية فقط
-وبهذا الشكل المنظم:
+
+أعطني التحليل باللغة العربية.
+
+استخدم هذا الشكل بالضبط:
 
 ━━━━━━━━━━━━━━━━━━
 ⚽ تحليل المباراة
@@ -505,44 +661,71 @@ def analyze_match_with_ai(data):
 نسبة الفوز: XX%
 
 ⚽ الأهداف المتوقعة:
-X إلى X أهداف تقريبًا
+الفريق المضيف: X تقريبًا
+الفريق الضيف: X تقريبًا
+
+🥅 من الأقرب للتسجيل:
+اسم اللاعب إن كان متوفرًا في البيانات
+أو اكتب:
+"لا توجد بيانات كافية لتحديد الهداف"
 
 🟨 البطاقات الصفراء المتوقعة:
-X إلى X بطاقات تقريبًا
+X إلى X تقريبًا
 
 🏆 الأقرب للفوز:
-اسم الفريق أو التعادل
+اسم الفريق
 
 📊 النتيجة المحتملة:
-مثال: 2-1
+X-X
+
+📈 مستوى الثقة:
+منخفض / متوسط / مرتفع
 
 🧠 التحليل:
-اكتب تحليلًا مختصرًا اعتمادًا على البيانات المتوفرة.
+تحليل مختصر يعتمد على البيانات المتوفرة.
 
-قواعد مهمة جدًا:
 
-1. مجموع نسب الفوز والتعادل يجب أن يساوي 100%.
-2. لا تخترع إحصائيات غير موجودة في البيانات.
-3. إذا كانت البيانات غير كافية، قل إن الثقة منخفضة.
-4. البطاقات والأهداف مجرد تقديرات احتمالية.
-5. لا تقل إن أي نتيجة مضمونة.
-6. لا تقدم وعودًا بالربح.
+قواعد مهمة:
+
+1. مجموع نسب الفوز والتعادل = 100%.
+2. لا تخترع أسماء لاعبين.
+3. لا تخترع إحصائيات غير موجودة.
+4. إذا لم توجد بيانات كافية عن الهدافين، صرّح بذلك.
+5. الأهداف والبطاقات تقديرات وليست نتائج مؤكدة.
+6. لا تقل إن أي نتيجة مضمونة.
+7. لا تعد المستخدم بالربح.
+8. كن واضحًا ومختصرًا.
 """
+
 
     try:
 
+        print(
+            "🤖 Sending analysis to OpenAI..."
+        )
+
+
         response = client.responses.create(
-
-            model="gpt-5-mini",
-
+            model="gpt-5.6-luna",
             input=prompt
         )
 
-        return response.output_text
+
+        result = response.output_text
+
+        print(
+            "✅ OpenAI analysis completed"
+        )
+
+        return result
+
 
     except Exception as e:
 
-        print("❌ OpenAI Analysis Error:", e)
+        print(
+            "❌ OpenAI Analysis Error:",
+            e
+        )
 
         return (
             "❌ حدث خطأ أثناء التحليل الذكي.\n\n"
@@ -554,18 +737,31 @@ X إلى X بطاقات تقريبًا
 # ANALYZE MATCH
 # =========================================================
 
-def analyze_match(chat_id, match_id):
+def analyze_match(
+    chat_id,
+    match_id
+):
 
     send_message(
         chat_id,
-        "🤖 جاري جمع بيانات الفريقين وتحليل المباراة...\n⏳ انتظر قليلًا."
+        "🤖 جاري جمع بيانات المباراة...\n"
+        "📊 أراجع نتائج الفريقين والترتيب...\n"
+        "🧠 ثم أرسل التحليل الذكي.\n\n"
+        "⏳ انتظر قليلًا..."
     )
 
-    match = matches_cache.get(str(match_id))
+
+    match = matches_cache.get(
+        str(match_id)
+    )
+
 
     if not match:
 
-        match = football_get(f"matches/{match_id}")
+        match = football_get(
+            f"matches/{match_id}"
+        )
+
 
     if not match:
 
@@ -576,14 +772,25 @@ def analyze_match(chat_id, match_id):
 
         return
 
-    data = prepare_analysis_data(match)
 
-    result = analyze_match_with_ai(data)
+    data = prepare_analysis_data(
+        match
+    )
 
-    # Telegram limit
+
+    result = analyze_match_with_ai(
+        data
+    )
+
+
+    # Telegram message limit
     if len(result) > 4000:
 
-        for i in range(0, len(result), 4000):
+        for i in range(
+            0,
+            len(result),
+            4000
+        ):
 
             send_message(
                 chat_id,
@@ -592,24 +799,33 @@ def analyze_match(chat_id, match_id):
 
     else:
 
-        send_message(chat_id, result)
+        send_message(
+            chat_id,
+            result
+        )
 
 
 # =========================================================
-# FLASK HOME
+# HOME
 # =========================================================
 
-@app.route("/", methods=["GET"])
+@app.route(
+    "/",
+    methods=["GET"]
+)
 def home():
 
     return "⚽ Football AI is running!"
 
 
 # =========================================================
-# TELEGRAM WEBHOOK
+# WEBHOOK
 # =========================================================
 
-@app.route("/telegram/webhook", methods=["POST"])
+@app.route(
+    "/telegram/webhook",
+    methods=["POST"]
+)
 def webhook():
 
     update = request.get_json(
@@ -618,39 +834,64 @@ def webhook():
 
 
     # =====================================================
-    # CALLBACK BUTTONS
+    # CALLBACK
     # =====================================================
 
-    callback = update.get("callback_query")
+    callback = update.get(
+        "callback_query"
+    )
+
 
     if callback:
 
         chat_id = callback[
             "message"
-        ]["chat"]["id"]
+        ][
+            "chat"
+        ][
+            "id"
+        ]
 
-        answer_callback(callback["id"])
 
-        if not is_owner(chat_id):
+        answer_callback(
+            callback["id"]
+        )
+
+
+        if not is_owner(
+            chat_id
+        ):
 
             return "OK"
 
-        callback_data = callback.get("data", "")
+
+        callback_data = callback.get(
+            "data",
+            ""
+        )
 
 
-        # LEAGUE
-        if callback_data.startswith("league:"):
+        # الدوري
+        if callback_data.startswith(
+            "league:"
+        ):
 
-            league_code = callback_data.split(":")[1]
+            league_code = (
+                callback_data
+                .split(":")[1]
+            )
+
 
             matches = get_league_matches(
                 league_code
             )
 
+
             league_name = LEAGUES.get(
                 league_code,
                 league_code
             )
+
 
             show_matches(
                 chat_id,
@@ -659,30 +900,46 @@ def webhook():
             )
 
 
-        # ANALYSIS
-        elif callback_data.startswith("analysis:"):
+        # التحليل
+        elif callback_data.startswith(
+            "analysis:"
+        ):
 
-            match_id = callback_data.split(":")[1]
+            match_id = (
+                callback_data
+                .split(":")[1]
+            )
+
 
             analyze_match(
                 chat_id,
                 match_id
             )
 
+
         return "OK"
 
 
     # =====================================================
-    # NORMAL MESSAGE
+    # MESSAGE
     # =====================================================
 
-    message = update.get("message")
+    message = update.get(
+        "message"
+    )
+
 
     if not message:
 
         return "OK"
 
-    chat_id = message["chat"]["id"]
+
+    chat_id = message[
+        "chat"
+    ][
+        "id"
+    ]
+
 
     text = message.get(
         "text",
@@ -690,11 +947,9 @@ def webhook():
     ).strip()
 
 
-    # =====================================================
-    # OWNER ONLY
-    # =====================================================
-
-    if not is_owner(chat_id):
+    if not is_owner(
+        chat_id
+    ):
 
         send_message(
             chat_id,
@@ -704,26 +959,23 @@ def webhook():
         return "OK"
 
 
-    # =====================================================
-    # START
-    # =====================================================
-
+    # /start
     if text == "/start":
 
         send_message(
             chat_id,
+
             "⚽ أهلاً بك في Football AI 🤖\n\n"
-            "يمكنك مشاهدة المباريات وتحليلها بالذكاء الاصطناعي.",
+            "يمكنك مشاهدة المباريات وتحليلها بالذكاء الاصطناعي.\n\n"
+            "اختر من القائمة:",
+            
             main_keyboard()
         )
 
         return "OK"
 
 
-    # =====================================================
-    # TODAY
-    # =====================================================
-
+    # مباريات اليوم
     if text == "⚽ مباريات اليوم":
 
         send_message(
@@ -731,7 +983,9 @@ def webhook():
             "⏳ جاري جلب مباريات اليوم..."
         )
 
+
         matches = get_today_matches()
+
 
         show_matches(
             chat_id,
@@ -739,13 +993,11 @@ def webhook():
             "⚽ مباريات اليوم"
         )
 
+
         return "OK"
 
 
-    # =====================================================
-    # TOMORROW
-    # =====================================================
-
+    # مباريات الغد
     if text == "📅 مباريات الغد":
 
         send_message(
@@ -753,7 +1005,9 @@ def webhook():
             "⏳ جاري جلب مباريات الغد..."
         )
 
+
         matches = get_tomorrow_matches()
+
 
         show_matches(
             chat_id,
@@ -761,39 +1015,39 @@ def webhook():
             "📅 مباريات الغد"
         )
 
+
         return "OK"
 
 
-    # =====================================================
-    # LEAGUES
-    # =====================================================
-
+    # الدوريات
     if text == "🏆 الدوريات":
 
-        show_leagues(chat_id)
+        show_leagues(
+            chat_id
+        )
 
         return "OK"
 
 
-    # =====================================================
-    # ANALYSIS HELP
-    # =====================================================
-
+    # تحليل مباراة
     if text == "🤖 تحليل مباراة":
 
         send_message(
             chat_id,
-            "⚽ اختر «مباريات اليوم» أو «الدوريات»، "
+
+            "⚽ اختر «مباريات اليوم» أو «الدوريات».\n\n"
             "ثم اضغط زر 🤖 تحليل بجانب المباراة."
         )
 
         return "OK"
 
 
+    # أي رسالة أخرى
     send_message(
         chat_id,
         "استخدم الأزرار أو أرسل /start."
     )
+
 
     return "OK"
 
@@ -805,7 +1059,10 @@ def webhook():
 if __name__ == "__main__":
 
     port = int(
-        os.getenv("PORT", 10000)
+        os.getenv(
+            "PORT",
+            10000
+        )
     )
 
     app.run(

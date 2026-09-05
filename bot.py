@@ -1,766 +1,1030 @@
 import os
-import re
 import math
 import requests
+
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from flask import Flask, request
-from bs4 import BeautifulSoup
+
 
 # =========================================================
-# إعدادات
+# SETTINGS
 # =========================================================
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 ACCESS_CODE = "1230"
-
-app = Flask(__name__)
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-authorized_users = set()
+app = Flask(__name__)
 
-SOURCE_FIXTURES = "https://www.footmercato.net/algerie/ligue-1/calendrier/"
-SOURCE_TABLE = "https://www.footmercato.net/algerie/ligue-1/classement/"
+TZ = ZoneInfo("Africa/Algiers")
 
 
 # =========================================================
-# أسماء الفرق بالعربية
+# SOFASCORE
 # =========================================================
 
-TEAM_AR = {
-    "ASO Chlef": "أولمبي الشلف",
+SOFA_BASE = "https://www.sofascore.com/api/v1"
+
+# Algerian Ligue 1
+ALGERIA_TOURNAMENT_ID = 841
+
+# Premier League
+ENGLAND_TOURNAMENT_ID = 17
+
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 "
+        "(KHTML, like Gecko) "
+        "Chrome/139.0 Safari/537.36"
+    ),
+    "Accept": "application/json",
+}
+
+
+# =========================================================
+# TEAM NAME TRANSLATION
+# =========================================================
+
+TEAM_NAMES = {
+
+    # -------------------------
+    # Algeria
+    # -------------------------
+
     "Chlef": "أولمبي الشلف",
+    "ASO Chlef": "أولمبي الشلف",
 
     "Belouizdad": "شباب بلوزداد",
     "CR Belouizdad": "شباب بلوزداد",
 
-    "CS Constantine": "شباب قسنطينة",
+    "Temouchent": "شباب تموشنت",
+    "CR Temouchent": "شباب تموشنت",
+
     "Constantine": "شباب قسنطينة",
+    "CS Constantine": "شباب قسنطينة",
 
-    "Témouchent": "شباب تموشنت",
-    "CR Témouchent": "شباب تموشنت",
-
-    "ES Sétif": "وفاق سطيف",
-    "Sétif": "وفاق سطيف",
-
-    "Ben Aknoun": "بن عكنون",
-    "ES Ben Aknoun": "بن عكنون",
-
-    "Biar": "شبيبة الأبيار",
-    "JS El Biar": "شبيبة الأبيار",
-
-    "Akbou": "أولمبي أقبو",
-    "Olympique Akbou": "أولمبي أقبو",
-
-    "Khenchela": "اتحاد خنشلة",
-    "USM Khenchela": "اتحاد خنشلة",
-
-    "USM Alger": "اتحاد العاصمة",
     "Kabylie": "شبيبة القبائل",
     "JS Kabylie": "شبيبة القبائل",
-
-    "Rouisset": "مستقبل الرويسات",
-    "MB Rouisset": "مستقبل الرويسات",
-
-    "US Biskra": "اتحاد بسكرة",
-    "Biskra": "اتحاد بسكرة",
 
     "Saoura": "شبيبة الساورة",
     "JS Saoura": "شبيبة الساورة",
 
+    "Rouissat": "مستقبل الرويسات",
+    "MB Rouissat": "مستقبل الرويسات",
+
     "MC Alger": "مولودية الجزائر",
+
+    "Oran": "مولودية وهران",
     "MC Oran": "مولودية وهران",
+
+    "Biskra": "اتحاد بسكرة",
+    "US Biskra": "اتحاد بسكرة",
+
+    "USM Alger": "اتحاد العاصمة",
+
+    "Khenchela": "اتحاد خنشلة",
+    "USM Khenchela": "اتحاد خنشلة",
+
+    "Sétif": "وفاق سطيف",
+    "ES Sétif": "وفاق سطيف",
+
+    "Ben Aknoun": "نجم بن عكنون",
+    "ES Ben Aknoun": "نجم بن عكنون",
+
+    "El Biar": "شبيبة الأبيار",
+    "Biar": "شبيبة الأبيار",
+
+    "Olympique Akbou": "أولمبي أقبو",
+    "Akbou": "أولمبي أقبو",
+
+    # -------------------------
+    # England
+    # -------------------------
+
+    "Manchester City": "مانشستر سيتي",
+    "Manchester United": "مانشستر يونايتد",
+    "Liverpool": "ليفربول",
+    "Arsenal": "أرسنال",
+    "Chelsea": "تشيلسي",
+    "Tottenham": "توتنهام",
+    "Tottenham Hotspur": "توتنهام",
+    "Newcastle": "نيوكاسل",
+    "Newcastle United": "نيوكاسل",
+    "Aston Villa": "أستون فيلا",
+    "Everton": "إيفرتون",
+    "Fulham": "فولهام",
+    "Crystal Palace": "كريستال بالاس",
+    "Brighton": "برايتون",
+    "Brighton & Hove Albion": "برايتون",
+    "Brentford": "برينتفورد",
+    "Sunderland": "سندرلاند",
+    "Leeds": "ليدز يونايتد",
+    "Leeds United": "ليدز يونايتد",
+    "Bournemouth": "بورنموث",
+    "AFC Bournemouth": "بورنموث",
+    "Nottingham Forest": "نوتنغهام فورست",
+    "Coventry": "كوفنتري",
+    "Coventry City": "كوفنتري",
+    "Hull": "هال سيتي",
+    "Hull City": "هال سيتي",
+    "Ipswich": "إيبسويتش",
+    "Ipswich Town": "إيبسويتش",
 }
 
 
-def arabic_team(name):
-    name = name.strip()
+def team_name(name):
 
-    for key, value in TEAM_AR.items():
-        if key.lower() == name.lower():
-            return value
+    if not name:
+        return "غير معروف"
 
-    for key, value in TEAM_AR.items():
-        if key.lower() in name.lower():
-            return value
+    return TEAM_NAMES.get(
+        name,
+        name
+    )
+
+
+# =========================================================
+# TIME
+# =========================================================
+
+def now_algeria():
+
+    return datetime.now(TZ)
+
+
+def today_string():
+
+    return now_algeria().strftime("%Y-%m-%d")
+
+
+# =========================================================
+# SOFASCORE REQUEST
+# =========================================================
+
+def sofa_get(endpoint):
+
+    url = SOFA_BASE + endpoint
+
+    try:
+
+        response = requests.get(
+            url,
+            headers=HEADERS,
+            timeout=20
+        )
+
+        if response.status_code != 200:
+
+            print(
+                "Sofascore HTTP:",
+                response.status_code,
+                endpoint
+            )
+
+            return None
+
+        return response.json()
+
+    except Exception as e:
+
+        print(
+            "Sofascore ERROR:",
+            endpoint,
+            e
+        )
+
+        return None
+
+
+# =========================================================
+# TODAY EVENTS
+# =========================================================
+
+def get_today_events():
+
+    date = today_string()
+
+    data = sofa_get(
+        f"/sport/football/scheduled-events/{date}"
+    )
+
+    if not data:
+
+        return []
+
+    events = data.get(
+        "events",
+        []
+    )
+
+    return events
+
+
+# =========================================================
+# FILTER LEAGUES
+# =========================================================
+
+def get_league_matches(league):
+
+    if league == "algeria":
+
+        tournament_id = ALGERIA_TOURNAMENT_ID
+
+    elif league == "england":
+
+        tournament_id = ENGLAND_TOURNAMENT_ID
+
+    else:
+
+        return []
+
+    events = get_today_events()
+
+    matches = []
+
+    for event in events:
+
+        tournament = event.get(
+            "tournament",
+            {}
+        )
+
+        unique = tournament.get(
+            "uniqueTournament",
+            {}
+        )
+
+        event_tournament_id = unique.get(
+            "id"
+        )
+
+        if event_tournament_id != tournament_id:
+            continue
+
+        home = event.get(
+            "homeTeam",
+            {}
+        )
+
+        away = event.get(
+            "awayTeam",
+            {}
+        )
+
+        home_id = home.get("id")
+        away_id = away.get("id")
+
+        if not home_id or not away_id:
+            continue
+
+        timestamp = event.get(
+            "startTimestamp"
+        )
+
+        if timestamp:
+
+            dt = datetime.fromtimestamp(
+                timestamp,
+                TZ
+            )
+
+            date = dt.strftime(
+                "%Y-%m-%d"
+            )
+
+            time = dt.strftime(
+                "%H:%M"
+            )
+
+        else:
+
+            date = today_string()
+            time = "غير محدد"
+
+        matches.append({
+
+            "event_id": event.get("id"),
+
+            "league": (
+                "🇩🇿 الدوري الجزائري"
+                if league == "algeria"
+                else
+                "🏴 الدوري الإنجليزي الممتاز"
+            ),
+
+            "home": team_name(
+                home.get("name")
+            ),
+
+            "away": team_name(
+                away.get("name")
+            ),
+
+            "home_original": home.get(
+                "name"
+            ),
+
+            "away_original": away.get(
+                "name"
+            ),
+
+            "home_id": home_id,
+            "away_id": away_id,
+
+            "date": date,
+            "time": time,
+
+            "status": event.get(
+                "status",
+                {}
+            ),
+
+            "event": event,
+        })
+
+    # Remove duplicates
+    unique_matches = {}
+
+    for match in matches:
+
+        unique_matches[
+            match["event_id"]
+        ] = match
+
+    return list(
+        unique_matches.values()
+    )
+
+
+# =========================================================
+# EVENT DETAILS
+# =========================================================
+
+def get_event_details(event_id):
+
+    return sofa_get(
+        f"/event/{event_id}"
+    )
+
+
+# =========================================================
+# LINEUPS
+# =========================================================
+
+def get_lineups(event_id):
+
+    data = sofa_get(
+        f"/event/{event_id}/lineups"
+    )
+
+    if not data:
+
+        return None
+
+    return data
+
+
+# =========================================================
+# PLAYER NAME
+# =========================================================
+
+def player_name(player):
+
+    if not player:
+        return "غير معروف"
+
+    return (
+        player.get("name")
+        or player.get("shortName")
+        or "غير معروف"
+    )
+
+
+# =========================================================
+# FORMAT PLAYER
+# =========================================================
+
+def format_player(item):
+
+    player = item.get(
+        "player",
+        {}
+    )
+
+    name = player_name(player)
+
+    shirt = item.get(
+        "shirtNumber"
+    )
+
+    if shirt:
+
+        return f"{shirt} - {name}"
 
     return name
 
 
 # =========================================================
-# طلب HTTP
+# FORMATION
 # =========================================================
 
-def get_html(url):
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 "
-            "(KHTML, like Gecko) "
-            "Chrome/128.0 Safari/537.36"
-        ),
-        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8"
-    }
+def formation_text(team_data):
 
-    response = requests.get(
-        url,
-        headers=headers,
-        timeout=30
+    formation = team_data.get(
+        "formation"
     )
 
-    response.raise_for_status()
+    if formation:
 
-    return response.text
-
-
-# =========================================================
-# Telegram
-# =========================================================
-
-def send_message(chat_id, text):
-    try:
-        requests.post(
-            f"{TELEGRAM_API}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "HTML"
-            },
-            timeout=20
-        )
-    except Exception as e:
-        print("Telegram error:", e)
-
-
-def show_menu(chat_id):
-    keyboard = {
-        "keyboard": [
-            ["📅 مباريات اليوم وتحليلها"],
-            ["🏆 الفرق"],
-            ["ℹ️ معلومات البوت"]
-        ],
-        "resize_keyboard": True
-    }
-
-    try:
-        requests.post(
-            f"{TELEGRAM_API}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": "🇩🇿⚽ اختر الخدمة:",
-                "reply_markup": keyboard
-            },
-            timeout=20
-        )
-    except Exception as e:
-        print("Keyboard error:", e)
-
-
-# =========================================================
-# تحويل التاريخ
-# =========================================================
-
-MONTHS_FR = {
-    1: "janvier",
-    2: "février",
-    3: "mars",
-    4: "avril",
-    5: "mai",
-    6: "juin",
-    7: "juillet",
-    8: "août",
-    9: "septembre",
-    10: "octobre",
-    11: "novembre",
-    12: "décembre"
-}
-
-DAYS_FR = {
-    0: "lundi",
-    1: "mardi",
-    2: "mercredi",
-    3: "jeudi",
-    4: "vendredi",
-    5: "samedi",
-    6: "dimanche"
-}
-
-
-# =========================================================
-# استخراج كل مباريات الصفحة
-# =========================================================
-
-def get_all_fixtures():
-
-    html = get_html(SOURCE_FIXTURES)
-
-    soup = BeautifulSoup(html, "html.parser")
-
-    text = soup.get_text("\n", strip=True)
-
-    lines = [
-        x.strip()
-        for x in text.split("\n")
-        if x.strip()
-    ]
-
-    fixtures = []
-
-    current_date = None
-
-    # -----------------------------------------
-    # أسماء الفرق الحالية
-    # -----------------------------------------
-
-    team_names = list(TEAM_AR.keys())
-
-    for i, line in enumerate(lines):
-
-        lower = line.lower()
-
-        # -----------------------------------------
-        # البحث عن تاريخ مثل:
-        # samedi 5 septembre 2026
-        # -----------------------------------------
-
-        date_match = re.search(
-            r"(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)"
-            r"\s+(\d{1,2})\s+"
-            r"(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)"
-            r"\s+(\d{4})",
-            lower
+        return str(
+            formation
         )
 
-        if date_match:
-
-            day = int(date_match.group(2))
-            month_name = date_match.group(3)
-            year = int(date_match.group(4))
-
-            month_number = None
-
-            for num, name in MONTHS_FR.items():
-                if name == month_name:
-                    month_number = num
-                    break
-
-            if month_number:
-                current_date = datetime(
-                    year,
-                    month_number,
-                    day
-                ).date()
-
-            continue
-
-        if current_date is None:
-            continue
-
-        # -----------------------------------------
-        # وقت المباراة
-        # -----------------------------------------
-
-        time_match = re.search(
-            r"\b([01]?\d|2[0-3]):([0-5]\d)\b",
-            line
-        )
-
-        if not time_match:
-            continue
-
-        match_time = time_match.group(0)
-
-        # -----------------------------------------
-        # نحاول العثور على فريقين حول الوقت
-        # -----------------------------------------
-
-        nearby = lines[
-            max(0, i - 5): min(len(lines), i + 3)
-        ]
-
-        found = []
-
-        for item in nearby:
-
-            for team in team_names:
-
-                if team.lower() in item.lower():
-
-                    if team not in found:
-                        found.append(team)
-
-        # -----------------------------------------
-        # إذا وجدنا فريقين
-        # -----------------------------------------
-
-        if len(found) >= 2:
-
-            home = found[-2]
-            away = found[-1]
-
-            fixture = {
-                "date": current_date,
-                "time": match_time,
-                "home": home,
-                "away": away
-            }
-
-            # منع التكرار
-            duplicate = False
-
-            for old in fixtures:
-
-                if (
-                    old["date"] == fixture["date"]
-                    and old["time"] == fixture["time"]
-                    and old["home"] == fixture["home"]
-                    and old["away"] == fixture["away"]
-                ):
-                    duplicate = True
-                    break
-
-            if not duplicate:
-                fixtures.append(fixture)
-
-    print("📅 Fixtures found:", len(fixtures))
-
-    return fixtures
+    return "غير محددة"
 
 
 # =========================================================
-# مباريات اليوم
+# OFFICIAL LINEUP CHECK
 # =========================================================
 
-def get_today_fixtures():
+def lineup_is_official(lineups):
 
-    today = datetime.now().date()
+    if not lineups:
 
-    fixtures = get_all_fixtures()
+        return False
 
-    today_matches = [
-        x for x in fixtures
-        if x["date"] == today
-    ]
+    home = lineups.get(
+        "home"
+    )
 
-    return today_matches
+    away = lineups.get(
+        "away"
+    )
 
+    if not home or not away:
 
-# =========================================================
-# جدول الترتيب الحالي
-# =========================================================
+        return False
 
-def get_current_table():
+    home_players = home.get(
+        "players",
+        []
+    )
 
-    try:
+    away_players = away.get(
+        "players",
+        []
+    )
 
-        html = get_html(SOURCE_TABLE)
-
-        soup = BeautifulSoup(html, "html.parser")
-
-        rows = soup.find_all("tr")
-
-        teams = {}
-
-        for row in rows:
-
-            cells = row.find_all(
-                ["td", "th"]
-            )
-
-            values = [
-                cell.get_text(" ", strip=True)
-                for cell in cells
-            ]
-
-            if len(values) < 5:
-                continue
-
-            row_text = " ".join(values)
-
-            # نحاول معرفة الفريق
-            team_found = None
-
-            for team in TEAM_AR.keys():
-
-                if team.lower() in row_text.lower():
-
-                    team_found = team
-                    break
-
-            if not team_found:
-                continue
-
-            # نبحث عن أرقام الجدول
-            numbers = []
-
-            for value in values:
-
-                if re.fullmatch(
-                    r"-?\d+",
-                    value
-                ):
-                    try:
-                        numbers.append(int(value))
-                    except:
-                        pass
-
-            # غالبًا:
-            # Pts J DIF G N D BP BC
-            if len(numbers) >= 8:
-
-                # آخر ثمانية أرقام مفيدة
-                nums = numbers[-8:]
-
-                points = nums[0]
-                played = nums[1]
-                diff = nums[2]
-                wins = nums[3]
-                draws = nums[4]
-                losses = nums[5]
-                goals_for = nums[6]
-                goals_against = nums[7]
-
-                teams[team_found] = {
-                    "points": points,
-                    "played": played,
-                    "wins": wins,
-                    "draws": draws,
-                    "losses": losses,
-                    "gf": goals_for,
-                    "ga": goals_against
-                }
-
-        print("📊 Teams in table:", len(teams))
-
-        return teams
-
-    except Exception as e:
-
-        print("❌ Table error:", e)
-
-        return {}
-
-
-# =========================================================
-# بيانات أساسية للموسم السابق
-#
-# تستخدم فقط عندما تكون بيانات الموسم الحالي قليلة جدًا.
-# =========================================================
-
-PREVIOUS_SEASON = {
-
-    # الفرق الكبيرة
-    "MC Alger": {
-        "attack": 1.55,
-        "defense": 0.65
-    },
-
-    "Belouizdad": {
-        "attack": 1.45,
-        "defense": 0.75
-    },
-
-    "Kabylie": {
-        "attack": 1.40,
-        "defense": 0.80
-    },
-
-    "USM Alger": {
-        "attack": 1.35,
-        "defense": 0.75
-    },
-
-    "ES Sétif": {
-        "attack": 1.15,
-        "defense": 0.95
-    },
-
-    "CS Constantine": {
-        "attack": 1.25,
-        "defense": 0.95
-    },
-
-    "ASO Chlef": {
-        "attack": 1.05,
-        "defense": 1.00
-    },
-
-    "MC Oran": {
-        "attack": 1.00,
-        "defense": 1.00
-    },
-
-    "Saoura": {
-        "attack": 1.10,
-        "defense": 1.00
-    },
-
-    "Khenchela": {
-        "attack": 0.95,
-        "defense": 1.05
-    },
-
-    "Biskra": {
-        "attack": 0.95,
-        "defense": 1.10
-    },
-
-    "Akbou": {
-        "attack": 1.05,
-        "defense": 1.00
-    },
-
-    "Ben Aknoun": {
-        "attack": 1.00,
-        "defense": 1.05
-    },
-
-    "Témouchent": {
-        "attack": 0.90,
-        "defense": 1.10
-    },
-
-    "Biar": {
-        "attack": 0.85,
-        "defense": 1.15
-    },
-
-    "Rouisset": {
-        "attack": 0.90,
-        "defense": 1.10
-    }
-}
-
-
-# =========================================================
-# احتمال Poisson
-# =========================================================
-
-def poisson_probability(lmbda, goals):
+    # Usually the official lineup contains
+    # starting XI with statistics/status.
+    #
+    # We don't invent it if source has no players.
 
     return (
-        math.exp(-lmbda)
-        * (lmbda ** goals)
-        / math.factorial(goals)
+        len(home_players) > 0
+        and
+        len(away_players) > 0
     )
 
 
 # =========================================================
-# قوة الفريق
+# LINEUP MESSAGE
 # =========================================================
 
-def get_team_strength(team, table):
+def format_lineup(
+    match,
+    mode
+):
 
-    # -----------------------------------------
-    # بيانات الموسم الحالي
-    # -----------------------------------------
+    lineups = get_lineups(
+        match["event_id"]
+    )
 
-    current = None
+    home = match["home"]
+    away = match["away"]
 
-    for key, data in table.items():
+    # -----------------------------------------------------
+    # No lineup
+    # -----------------------------------------------------
 
-        if (
-            key.lower() == team.lower()
-            or key.lower() in team.lower()
-            or team.lower() in key.lower()
-        ):
-            current = data
-            break
+    if not lineups:
 
-    # -----------------------------------------
-    # بيانات الموسم السابق
-    # -----------------------------------------
+        if mode == "predicted":
 
-    previous = None
-
-    for key, data in PREVIOUS_SEASON.items():
-
-        if (
-            key.lower() == team.lower()
-            or key.lower() in team.lower()
-            or team.lower() in key.lower()
-        ):
-            previous = data
-            break
-
-    # -----------------------------------------
-    # إذا لا توجد أي بيانات
-    # -----------------------------------------
-
-    if not current and not previous:
-
-        return {
-            "attack": 1.00,
-            "defense": 1.00
-        }
-
-    # -----------------------------------------
-    # موسم جديد:
-    # نعطي الحالي وزنًا أكبر كلما زاد عدد المباريات
-    # -----------------------------------------
-
-    if current:
-
-        played = current["played"]
-
-        if played >= 5:
-
-            attack = max(
-                0.45,
-                current["gf"] / played
+            return (
+                f"🧩 <b>التشكيلة المحتملة</b>\n\n"
+                f"⚽ {home} × {away}\n\n"
+                "⚠️ لا توجد تشكيلة متوقعة متاحة "
+                "حاليًا من المصدر."
             )
 
-            defense = max(
-                0.45,
-                current["ga"] / played
+        return (
+            f"✅ <b>التشكيلة الأساسية</b>\n\n"
+            f"⚽ {home} × {away}\n\n"
+            "⏳ لم يتم الإعلان عن التشكيلة "
+            "الأساسية بعد."
+        )
+
+    home_data = lineups.get(
+        "home",
+        {}
+    )
+
+    away_data = lineups.get(
+        "away",
+        {}
+    )
+
+    # -----------------------------------------------------
+    # Official
+    # -----------------------------------------------------
+
+    if mode == "official":
+
+        if not lineup_is_official(
+            lineups
+        ):
+
+            return (
+                f"⏳ <b>التشكيلة الأساسية</b>\n\n"
+                f"⚽ {home} × {away}\n\n"
+                "لم يتم الإعلان عن التشكيلة "
+                "الأساسية رسميًا بعد."
             )
 
-            return {
-                "attack": attack,
-                "defense": defense
-            }
+    title = (
+        "🧩 التشكيلة المحتملة"
+        if mode == "predicted"
+        else
+        "✅ التشكيلة الأساسية"
+    )
 
-        elif played > 0:
+    text = []
 
-            current_attack = current["gf"] / played
-            current_defense = current["ga"] / played
+    text.append(
+        f"<b>{title}</b>"
+    )
 
-            if previous:
+    text.append(
+        f"⚽ {home} × {away}"
+    )
 
-                weight_current = min(
-                    0.60,
-                    played * 0.15
-                )
+    text.append("")
 
-                weight_previous = (
-                    1 - weight_current
-                )
+    # =====================================================
+    # HOME
+    # =====================================================
 
-                attack = (
-                    current_attack * weight_current
-                    + previous["attack"] * weight_previous
-                )
+    text.append(
+        f"🏠 <b>{home}</b>"
+    )
 
-                defense = (
-                    current_defense * weight_current
-                    + previous["defense"] * weight_previous
-                )
+    text.append(
+        f"📐 الخطة: "
+        f"{formation_text(home_data)}"
+    )
 
-                return {
-                    "attack": max(0.55, attack),
-                    "defense": max(0.55, defense)
-                }
+    home_players = home_data.get(
+        "players",
+        []
+    )
 
-    if previous:
+    starters = []
+    substitutes = []
 
-        return previous
+    for item in home_players:
+
+        # SofaScore uses sub flag
+        sub = item.get(
+            "substitute",
+            False
+        )
+
+        if sub:
+
+            substitutes.append(
+                format_player(item)
+            )
+
+        else:
+
+            starters.append(
+                format_player(item)
+            )
+
+    if starters:
+
+        text.append("")
+        text.append("🔹 <b>الأساسيون</b>")
+
+        for player in starters[:11]:
+
+            text.append(
+                f"• {player}"
+            )
+
+    if mode == "official" and substitutes:
+
+        text.append("")
+        text.append("🔄 <b>البدلاء</b>")
+
+        for player in substitutes:
+
+            text.append(
+                f"• {player}"
+            )
+
+    # =====================================================
+    # AWAY
+    # =====================================================
+
+    text.append("")
+    text.append(
+        f"✈️ <b>{away}</b>"
+    )
+
+    text.append(
+        f"📐 الخطة: "
+        f"{formation_text(away_data)}"
+    )
+
+    away_players = away_data.get(
+        "players",
+        []
+    )
+
+    starters = []
+    substitutes = []
+
+    for item in away_players:
+
+        sub = item.get(
+            "substitute",
+            False
+        )
+
+        if sub:
+
+            substitutes.append(
+                format_player(item)
+            )
+
+        else:
+
+            starters.append(
+                format_player(item)
+            )
+
+    if starters:
+
+        text.append("")
+        text.append("🔹 <b>الأساسيون</b>")
+
+        for player in starters[:11]:
+
+            text.append(
+                f"• {player}"
+            )
+
+    if mode == "official" and substitutes:
+
+        text.append("")
+        text.append("🔄 <b>البدلاء</b>")
+
+        for player in substitutes:
+
+            text.append(
+                f"• {player}"
+            )
+
+    text.append("")
+
+    if mode == "predicted":
+
+        text.append(
+            "ℹ️ هذه تشكيلة متوقعة وليست رسمية."
+        )
+
+    else:
+
+        text.append(
+            "✅ التشكيلة مأخوذة من بيانات "
+            "المباراة بعد إعلانها."
+        )
+
+    return "\n".join(text)
+
+
+# =========================================================
+# MATCH KEYBOARD
+# =========================================================
+
+def match_keyboard(event_id):
 
     return {
-        "attack": 1.00,
-        "defense": 1.00
+
+        "inline_keyboard": [
+
+            [
+                {
+                    "text": "📊 التحليل",
+                    "callback_data":
+                    f"analysis:{event_id}"
+                }
+            ],
+
+            [
+                {
+                    "text": "🧩 التشكيلة المحتملة",
+                    "callback_data":
+                    f"predicted:{event_id}"
+                }
+            ],
+
+            [
+                {
+                    "text": "✅ التشكيلة الأساسية",
+                    "callback_data":
+                    f"official:{event_id}"
+                }
+            ],
+
+        ]
+
     }
 
 
 # =========================================================
-# حساب المباراة
+# MATCH ANALYSIS
 # =========================================================
 
-def calculate_match(home, away, table):
+def poisson(k, lam):
 
-    home_strength = get_team_strength(
+    return (
+        math.exp(-lam)
+        *
+        lam ** k
+        /
+        math.factorial(k)
+    )
+
+
+def probability_over(
+    total_lambda,
+    line
+):
+
+    maximum_under = int(
+        math.floor(line)
+    )
+
+    under = 0.0
+
+    for goals in range(
+        maximum_under + 1
+    ):
+
+        under += poisson(
+            goals,
+            total_lambda
+        )
+
+    return max(
+        0.0,
+        min(
+            1.0,
+            1.0 - under
+        )
+    )
+
+
+def calculate_analysis(match):
+
+    home = match["home"]
+    away = match["away"]
+
+    # ---------------------------------------------
+    # Base strength
+    # ---------------------------------------------
+
+    # These are intentionally modest defaults.
+    # Later we can replace them with automatic
+    # last-5 / last-10 match statistics.
+
+    strength = {
+
+        "مانشستر سيتي": 1.35,
+        "أرسنال": 1.30,
+        "ليفربول": 1.30,
+        "تشيلسي": 1.15,
+        "مانشستر يونايتد": 1.10,
+
+        "شباب بلوزداد": 1.20,
+        "مولودية الجزائر": 1.20,
+        "شبيبة القبائل": 1.10,
+        "اتحاد العاصمة": 1.10,
+
+        "أولمبي الشلف": 0.95,
+        "شباب قسنطينة": 1.00,
+        "شباب تموشنت": 0.85,
+
+    }
+
+    hs = strength.get(
         home,
-        table
+        1.0
     )
 
-    away_strength = get_team_strength(
+    aws = strength.get(
         away,
-        table
+        1.0
     )
 
-    # -----------------------------------------------------
-    # متوسط الدوري الجزائري التقريبي
-    # -----------------------------------------------------
+    if "الجزائري" in match["league"]:
 
-    league_average = 1.15
+        base = 1.05
+        home_advantage = 1.15
 
-    # -----------------------------------------------------
-    # قوة الهجوم × ضعف دفاع الخصم
-    # -----------------------------------------------------
+    else:
+
+        base = 1.35
+        home_advantage = 1.18
 
     home_lambda = (
-        league_average
-        * home_strength["attack"]
-        / max(0.65, away_strength["defense"])
+        base
+        * hs
+        * home_advantage
+        / max(
+            0.75,
+            aws
+        )
     )
 
     away_lambda = (
-        league_average
-        * away_strength["attack"]
-        / max(0.65, home_strength["defense"])
+        base
+        * aws
+        / max(
+            0.80,
+            hs
+        )
     )
 
-    # أفضلية الأرض
-    home_lambda *= 1.08
-
-    # حدود منطقية
     home_lambda = max(
-        0.25,
-        min(home_lambda, 3.50)
+        0.20,
+        min(
+            home_lambda,
+            3.5
+        )
     )
 
     away_lambda = max(
         0.20,
-        min(away_lambda, 3.00)
+        min(
+            away_lambda,
+            3.2
+        )
     )
-
-    # -----------------------------------------------------
-    # مصفوفة النتائج 0-0 إلى 6-6
-    # -----------------------------------------------------
-
-    matrix = {}
 
     home_win = 0
     draw = 0
     away_win = 0
 
-    for h in range(7):
+    scores = []
 
-        for a in range(7):
+    for h in range(9):
+
+        for a in range(9):
 
             p = (
-                poisson_probability(
-                    home_lambda,
-                    h
+                poisson(
+                    h,
+                    home_lambda
                 )
                 *
-                poisson_probability(
-                    away_lambda,
-                    a
+                poisson(
+                    a,
+                    away_lambda
                 )
             )
 
-            matrix[(h, a)] = p
+            scores.append(
+                (h, a, p)
+            )
 
             if h > a:
+
                 home_win += p
 
             elif h == a:
+
                 draw += p
 
             else:
+
                 away_win += p
 
-    total = home_win + draw + away_win
+    scores.sort(
+        key=lambda x: x[2],
+        reverse=True
+    )
 
-    home_win /= total
-    draw /= total
-    away_win /= total
+    total = (
+        home_lambda
+        +
+        away_lambda
+    )
 
-    # -----------------------------------------------------
-    # احتمالات مجموع الأهداف
-    # -----------------------------------------------------
+    return {
 
-    goal_lines = {}
+        "home_lambda":
+            home_lambda,
+
+        "away_lambda":
+            away_lambda,
+
+        "home_win":
+            home_win,
+
+        "draw":
+            draw,
+
+        "away_win":
+            away_win,
+
+        "total":
+            total,
+
+        "scores":
+            scores[:5],
+    }
+
+
+def pct(x):
+
+    return f"{x * 100:.1f}%"
+
+
+def format_analysis(match):
+
+    a = calculate_analysis(
+        match
+    )
+
+    home = match["home"]
+    away = match["away"]
+
+    text = []
+
+    text.append(
+        f"⚽ <b>{home} × {away}</b>"
+    )
+
+    text.append(
+        f"🏆 {match['league']}"
+    )
+
+    text.append(
+        f"🕐 {match['time']}"
+    )
+
+    text.append("")
+
+    text.append(
+        "📊 <b>احتمالات المباراة</b>"
+    )
+
+    text.append(
+        f"🏠 {home}: "
+        f"<b>{pct(a['home_win'])}</b>"
+    )
+
+    text.append(
+        f"🤝 التعادل: "
+        f"<b>{pct(a['draw'])}</b>"
+    )
+
+    text.append(
+        f"✈️ {away}: "
+        f"<b>{pct(a['away_win'])}</b>"
+    )
+
+    text.append("")
+
+    text.append(
+        f"🎯 الأهداف المتوقعة: "
+        f"<b>{a['total']:.2f}</b>"
+    )
+
+    text.append("")
+
+    text.append(
+        "📈 <b>Over / Under</b>"
+    )
 
     for line in [
         0.5,
@@ -771,389 +1035,470 @@ def calculate_match(home, away, table):
         5.5
     ]:
 
-        under = 0
+        over = probability_over(
+            a["total"],
+            line
+        )
 
-        for (h, a), p in matrix.items():
+        under = 1 - over
 
-            if h + a <= int(line):
+        text.append(
+            f"Over {line}: "
+            f"<b>{pct(over)}</b> "
+            f"| Under {line}: "
+            f"<b>{pct(under)}</b>"
+        )
 
-                under += p
+    text.append("")
 
-        under /= total
-
-        over = 1 - under
-
-        goal_lines[line] = {
-            "over": over,
-            "under": under
-        }
-
-    # -----------------------------------------------------
-    # أكثر النتائج احتمالًا
-    # -----------------------------------------------------
-
-    top_scores = sorted(
-        matrix.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )[:5]
-
-    # -----------------------------------------------------
-    # BTTS
-    # -----------------------------------------------------
-
-    btts_yes = 0
-
-    for (h, a), p in matrix.items():
-
-        if h >= 1 and a >= 1:
-            btts_yes += p
-
-    btts_yes /= total
-
-    btts_no = 1 - btts_yes
-
-    # -----------------------------------------------------
-    # مجموع الأهداف المتوقع
-    # -----------------------------------------------------
-
-    expected_goals = (
-        home_lambda
-        + away_lambda
+    text.append(
+        "🎯 <b>النتائج الأكثر احتمالًا</b>"
     )
 
-    return {
-        "home_lambda": home_lambda,
-        "away_lambda": away_lambda,
-        "home_win": home_win,
-        "draw": draw,
-        "away_win": away_win,
-        "goal_lines": goal_lines,
-        "btts_yes": btts_yes,
-        "btts_no": btts_no,
-        "expected_goals": expected_goals,
-        "top_scores": top_scores
+    for h, aw, p in a["scores"]:
+
+        text.append(
+            f"{h} - {aw}: "
+            f"<b>{pct(p)}</b>"
+        )
+
+    text.append("")
+
+    text.append(
+        "⚠️ التحليل احتمالي وليس ضمانًا."
+    )
+
+    return "\n".join(text)
+
+
+# =========================================================
+# TELEGRAM
+# =========================================================
+
+def send_message(
+    chat_id,
+    text,
+    reply_markup=None
+):
+
+    data = {
+
+        "chat_id":
+            chat_id,
+
+        "text":
+            text,
+
+        "parse_mode":
+            "HTML",
+
+        "disable_web_page_preview":
+            True,
     }
 
+    if reply_markup:
 
-# =========================================================
-# تحويل النسبة
-# =========================================================
-
-def pct(value):
-
-    return round(
-        value * 100
-    )
-
-
-# =========================================================
-# اختيار التوقع الأقوى
-# =========================================================
-
-def strongest_result(analysis, home, away):
-
-    options = [
-        (
-            analysis["home_win"],
-            f"فوز {arabic_team(home)}"
-        ),
-        (
-            analysis["draw"],
-            "التعادل"
-        ),
-        (
-            analysis["away_win"],
-            f"فوز {arabic_team(away)}"
-        )
-    ]
-
-    options.sort(
-        key=lambda x: x[0],
-        reverse=True
-    )
-
-    return options[0]
-
-
-# =========================================================
-# إنشاء تحليل المباراة
-# =========================================================
-
-def format_analysis(match, analysis):
-
-    home = arabic_team(
-        match["home"]
-    )
-
-    away = arabic_team(
-        match["away"]
-    )
-
-    best_result = strongest_result(
-        analysis,
-        match["home"],
-        match["away"]
-    )
-
-    # -----------------------------------------------------
-    # أفضل نتيجة صحيحة
-    # -----------------------------------------------------
-
-    score = analysis["top_scores"][0][0]
-
-    score_probability = analysis["top_scores"][0][1]
-
-    # -----------------------------------------------------
-    # خطوط الأهداف
-    # -----------------------------------------------------
-
-    lines = analysis["goal_lines"]
-
-    text = (
-        f"⚽ <b>{home}</b> 🆚 <b>{away}</b>\n"
-        f"🕐 {match['time']}\n\n"
-
-        f"📊 <b>تحليل المباراة</b>\n\n"
-
-        f"🏠 فوز {home}: "
-        f"<b>{pct(analysis['home_win'])}%</b>\n"
-
-        f"🤝 التعادل: "
-        f"<b>{pct(analysis['draw'])}%</b>\n"
-
-        f"🚩 فوز {away}: "
-        f"<b>{pct(analysis['away_win'])}%</b>\n\n"
-
-        f"🎯 <b>أقوى احتمال:</b>\n"
-        f"{best_result[1]} "
-        f"({pct(best_result[0])}%)\n\n"
-
-        f"🥅 <b>إجمالي الأهداف المتوقع:</b> "
-        f"<b>{analysis['expected_goals']:.2f}</b>\n\n"
-
-        f"📈 <b>خطوط الأهداف:</b>\n"
-
-        f"0.5+ : <b>{pct(lines[0.5]['over'])}%</b>\n"
-        f"1.5+ : <b>{pct(lines[1.5]['over'])}%</b>\n"
-        f"2.5+ : <b>{pct(lines[2.5]['over'])}%</b>\n"
-        f"3.5+ : <b>{pct(lines[3.5]['over'])}%</b>\n"
-        f"4.5+ : <b>{pct(lines[4.5]['over'])}%</b>\n"
-        f"5.5+ : <b>{pct(lines[5.5]['over'])}%</b>\n\n"
-
-        f"📉 <b>أقل من:</b>\n"
-
-        f"0.5 : <b>{pct(lines[0.5]['under'])}%</b>\n"
-        f"1.5 : <b>{pct(lines[1.5]['under'])}%</b>\n"
-        f"2.5 : <b>{pct(lines[2.5]['under'])}%</b>\n"
-        f"3.5 : <b>{pct(lines[3.5]['under'])}%</b>\n"
-        f"4.5 : <b>{pct(lines[4.5]['under'])}%</b>\n"
-        f"5.5 : <b>{pct(lines[5.5]['under'])}%</b>\n\n"
-
-        f"🔄 <b>يسجل الفريقان:</b>\n"
-        f"نعم: <b>{pct(analysis['btts_yes'])}%</b>\n"
-        f"لا: <b>{pct(analysis['btts_no'])}%</b>\n\n"
-
-        f"🔢 <b>أكثر النتائج احتمالًا:</b>\n"
-    )
-
-    for score_pair, probability in analysis["top_scores"]:
-
-        h, a = score_pair
-
-        text += (
-            f"{h} - {a} : "
-            f"<b>{pct(probability)}%</b>\n"
-        )
-
-    text += (
-        "\n⚠️ <i>التحليل إحصائي تقديري مبني على "
-        "بيانات النتائج المتاحة ونموذج احتمالي، "
-        "وليس ضمانًا للنتيجة.</i>"
-    )
-
-    return text
-
-
-# =========================================================
-# عرض مباريات اليوم
-# =========================================================
-
-def show_today_matches(chat_id):
+        data[
+            "reply_markup"
+        ] = reply_markup
 
     try:
 
-        matches = get_today_fixtures()
-
-        if not matches:
-
-            now = datetime.now()
-
-            send_message(
-                chat_id,
-                f"📅 <b>مباريات اليوم</b>\n\n"
-                f"📆 {now.strftime('%d/%m/%Y')}\n\n"
-                f"⚽ لا توجد مباريات للدوري الجزائري "
-                f"مسجلة اليوم حاليًا."
-            )
-
-            return
-
-        table = get_current_table()
-
-        now = datetime.now()
-
-        header = (
-            f"🇩🇿 <b>مباريات الدوري الجزائري اليوم</b>\n"
-            f"📆 {now.strftime('%d/%m/%Y')}\n\n"
+        requests.post(
+            f"{TELEGRAM_API}/sendMessage",
+            json=data,
+            timeout=20
         )
-
-        send_message(
-            chat_id,
-            header
-        )
-
-        for index, match in enumerate(
-            matches,
-            1
-        ):
-
-            print(
-                "🔎 تحليل:",
-                match["home"],
-                match["away"]
-            )
-
-            analysis = calculate_match(
-                match["home"],
-                match["away"],
-                table
-            )
-
-            message = (
-                f"━━━━━━━━━━━━━━\n"
-                f"<b>المباراة {index}</b>\n\n"
-                +
-                format_analysis(
-                    match,
-                    analysis
-                )
-            )
-
-            send_message(
-                chat_id,
-                message
-            )
 
     except Exception as e:
 
         print(
-            "❌ Today matches error:",
+            "Telegram send error:",
             e
+        )
+
+
+def answer_callback(
+    callback_id
+):
+
+    try:
+
+        requests.post(
+            f"{TELEGRAM_API}/answerCallbackQuery",
+            json={
+                "callback_query_id":
+                    callback_id
+            },
+            timeout=10
+        )
+
+    except Exception as e:
+
+        print(
+            "Callback error:",
+            e
+        )
+
+
+# =========================================================
+# MATCH MENU
+# =========================================================
+
+def send_matches(
+    chat_id,
+    league
+):
+
+    matches = get_league_matches(
+        league
+    )
+
+    if not matches:
+
+        send_message(
+            chat_id,
+
+            "⚠️ لا توجد مباريات متاحة "
+            f"لهذه البطولة اليوم "
+            f"({today_string()}).",
+
+            main_keyboard()
+        )
+
+        return
+
+    title = (
+        "🇩🇿 مباريات الجزائر اليوم"
+        if league == "algeria"
+        else
+        "🏴 مباريات إنجلترا اليوم"
+    )
+
+    send_message(
+        chat_id,
+
+        f"<b>{title}</b>\n"
+        f"📅 {today_string()}\n\n"
+        f"تم العثور على "
+        f"<b>{len(matches)}</b> مباراة."
+    )
+
+    for match in matches:
+
+        message = (
+            f"⚽ <b>{match['home']} × "
+            f"{match['away']}</b>\n\n"
+            f"🕐 {match['time']}\n"
+            f"🏆 {match['league']}\n\n"
+            "اختر ما تريد:"
         )
 
         send_message(
             chat_id,
-            "❌ حدث خطأ أثناء جلب مباريات اليوم وتحليلها.\n"
-            "حاول مرة أخرى بعد قليل."
+            message,
+            match_keyboard(
+                match["event_id"]
+            )
         )
 
 
 # =========================================================
-# الفرق
+# MAIN KEYBOARD
 # =========================================================
 
-def show_teams(chat_id):
+def main_keyboard():
 
-    teams = [
-        "مولودية الجزائر",
-        "شباب بلوزداد",
-        "شبيبة القبائل",
-        "اتحاد العاصمة",
-        "وفاق سطيف",
-        "شباب قسنطينة",
-        "مولودية وهران",
-        "شبيبة الساورة",
-        "أولمبي الشلف",
-        "اتحاد خنشلة",
-        "اتحاد بسكرة",
-        "أولمبي أقبو",
-        "بن عكنون",
-        "شباب تموشنت",
-        "شبيبة الأبيار",
-        "مستقبل الرويسات"
-    ]
+    return {
 
-    text = (
-        "🇩🇿 <b>أندية الدوري الجزائري</b>\n\n"
-    )
+        "keyboard": [
 
-    for team in teams:
-        text += f"⚽ {team}\n"
+            [
+                {
+                    "text":
+                    "🇩🇿 مباريات الجزائر اليوم"
+                }
+            ],
 
-    send_message(
-        chat_id,
-        text
-    )
+            [
+                {
+                    "text":
+                    "🏴 مباريات إنجلترا اليوم"
+                }
+            ],
 
+            [
+                {
+                    "text":
+                    "ℹ️ معلومات البوت"
+                }
+            ]
 
-# =========================================================
-# معلومات
-# =========================================================
+        ],
 
-def show_info(chat_id):
-
-    text = """
-ℹ️ <b>معلومات البوت</b>
-
-🇩🇿 بوت الدوري الجزائري
-
-📅 <b>مباريات اليوم وتحليلها</b>
-
-عند الضغط على الزر، البوت:
-• يحدد تاريخ اليوم تلقائيًا
-• يجلب مباريات اليوم
-• يعرض كل مباراة منفصلة
-• يحسب احتمال الفوز والتعادل
-• يحسب إجمالي الأهداف المتوقع
-• يحسب 0.5+ إلى 5.5+
-• يحسب أقل من 0.5 إلى 5.5
-• يحسب احتمال تسجيل الفريقين
-• يعرض أكثر النتائج احتمالًا
-
-🔐 كود الدخول: 1230
-
-🌐 لا يحتاج إلى Football API Key.
-
-⚠️ النتائج احتمالات إحصائية وليست ضمانًا.
-"""
-
-    send_message(
-        chat_id,
-        text
-    )
+        "resize_keyboard":
+            True
+    }
 
 
 # =========================================================
-# Webhook
+# FIND EVENT BY ID
+# =========================================================
+
+def find_event(event_id):
+
+    events = get_today_events()
+
+    for event in events:
+
+        if event.get("id") == event_id:
+
+            home = event.get(
+                "homeTeam",
+                {}
+            )
+
+            away = event.get(
+                "awayTeam",
+                {}
+            )
+
+            timestamp = event.get(
+                "startTimestamp"
+            )
+
+            if timestamp:
+
+                dt = datetime.fromtimestamp(
+                    timestamp,
+                    TZ
+                )
+
+                time = dt.strftime(
+                    "%H:%M"
+                )
+
+                date = dt.strftime(
+                    "%Y-%m-%d"
+                )
+
+            else:
+
+                time = "غير محدد"
+                date = today_string()
+
+            tournament = event.get(
+                "tournament",
+                {}
+            )
+
+            unique = tournament.get(
+                "uniqueTournament",
+                {}
+            )
+
+            tournament_id = unique.get(
+                "id"
+            )
+
+            if tournament_id == ALGERIA_TOURNAMENT_ID:
+
+                league = "🇩🇿 الدوري الجزائري"
+
+            elif tournament_id == ENGLAND_TOURNAMENT_ID:
+
+                league = "🏴 الدوري الإنجليزي الممتاز"
+
+            else:
+
+                league = "الدوري"
+
+            return {
+
+                "event_id":
+                    event_id,
+
+                "league":
+                    league,
+
+                "home":
+                    team_name(
+                        home.get("name")
+                    ),
+
+                "away":
+                    team_name(
+                        away.get("name")
+                    ),
+
+                "time":
+                    time,
+
+                "date":
+                    date,
+            }
+
+    return None
+
+
+# =========================================================
+# WEBHOOK
 # =========================================================
 
 @app.route(
     "/telegram/webhook",
     methods=["POST"]
 )
-def telegram_webhook():
+def webhook():
 
     try:
 
-        data = request.get_json(
-            force=True
+        update = request.get_json(
+            silent=True
         )
 
-        message = data.get(
-            "message",
-            {}
+        if not update:
+
+            return "ok"
+
+        # =================================================
+        # CALLBACK BUTTON
+        # =================================================
+
+        callback = update.get(
+            "callback_query"
         )
+
+        if callback:
+
+            callback_id = callback.get(
+                "id"
+            )
+
+            data = callback.get(
+                "data",
+                ""
+            )
+
+            message = callback.get(
+                "message",
+                {}
+            )
+
+            chat = message.get(
+                "chat",
+                {}
+            )
+
+            chat_id = chat.get(
+                "id"
+            )
+
+            answer_callback(
+                callback_id
+            )
+
+            if not chat_id:
+
+                return "ok"
+
+            try:
+
+                mode, event_id = data.split(
+                    ":",
+                    1
+                )
+
+                event_id = int(
+                    event_id
+                )
+
+            except:
+
+                return "ok"
+
+            match = find_event(
+                event_id
+            )
+
+            if not match:
+
+                send_message(
+                    chat_id,
+                    "⚠️ لم أجد بيانات المباراة."
+                )
+
+                return "ok"
+
+            # ---------------------------------------------
+            # ANALYSIS
+            # ---------------------------------------------
+
+            if mode == "analysis":
+
+                send_message(
+                    chat_id,
+                    format_analysis(
+                        match
+                    ),
+                    match_keyboard(
+                        event_id
+                    )
+                )
+
+                return "ok"
+
+            # ---------------------------------------------
+            # PREDICTED LINEUP
+            # ---------------------------------------------
+
+            if mode == "predicted":
+
+                send_message(
+                    chat_id,
+                    format_lineup(
+                        match,
+                        "predicted"
+                    ),
+                    match_keyboard(
+                        event_id
+                    )
+                )
+
+                return "ok"
+
+            # ---------------------------------------------
+            # OFFICIAL LINEUP
+            # ---------------------------------------------
+
+            if mode == "official":
+
+                send_message(
+                    chat_id,
+                    format_lineup(
+                        match,
+                        "official"
+                    ),
+                    match_keyboard(
+                        event_id
+                    )
+                )
+
+                return "ok"
+
+            return "ok"
+
+        # =================================================
+        # NORMAL MESSAGE
+        # =================================================
+
+        message = update.get(
+            "message"
+        )
+
+        if not message:
+
+            return "ok"
 
         chat = message.get(
             "chat",
@@ -1164,116 +1509,213 @@ def telegram_webhook():
             "id"
         )
 
+        text = (
+            message.get(
+                "text",
+                ""
+            )
+            .strip()
+        )
+
         if not chat_id:
-            return "OK", 200
 
-        text = message.get(
-            "text",
-            ""
-        ).strip()
+            return "ok"
 
-        # -----------------------------------------
-        # التحقق من الدخول
-        # -----------------------------------------
-
-        if chat_id not in authorized_users:
-
-            if text == ACCESS_CODE:
-
-                authorized_users.add(
-                    chat_id
-                )
-
-                send_message(
-                    chat_id,
-                    "✅ <b>تم الدخول بنجاح</b>\n\n"
-                    "🇩🇿 مرحبًا بك في بوت الدوري الجزائري ⚽"
-                )
-
-                show_menu(chat_id)
-
-            else:
-
-                send_message(
-                    chat_id,
-                    "🔐 <b>أرسل كود الدخول:</b>"
-                )
-
-            return "OK", 200
-
-        # -----------------------------------------
-        # Start
-        # -----------------------------------------
+        # =================================================
+        # START
+        # =================================================
 
         if text == "/start":
 
-            show_menu(chat_id)
+            send_message(
+                chat_id,
 
-        # -----------------------------------------
-        # مباريات اليوم
-        # -----------------------------------------
-
-        elif text == "📅 مباريات اليوم وتحليلها":
-
-            show_today_matches(
-                chat_id
+                "⚽ <b>مرحبًا بك</b>\n\n"
+                "اختر البطولة:",
+                main_keyboard()
             )
 
-        # -----------------------------------------
-        # الفرق
-        # -----------------------------------------
+            return "ok"
 
-        elif text == "🏆 الفرق":
+        # =================================================
+        # ACCESS
+        # =================================================
 
-            show_teams(
-                chat_id
-            )
-
-        # -----------------------------------------
-        # المعلومات
-        # -----------------------------------------
-
-        elif text == "ℹ️ معلومات البوت":
-
-            show_info(
-                chat_id
-            )
-
-        else:
+        if text == ACCESS_CODE:
 
             send_message(
                 chat_id,
-                "اختر الخدمة من القائمة 👇"
+
+                "✅ تم قبول الكود.\n\n"
+                "اختر البطولة:",
+                main_keyboard()
             )
 
-        return "OK", 200
+            return "ok"
+
+        # =================================================
+        # ALGERIA
+        # =================================================
+
+        if text == "🇩🇿 مباريات الجزائر اليوم":
+
+            send_matches(
+                chat_id,
+                "algeria"
+            )
+
+            return "ok"
+
+        # =================================================
+        # ENGLAND
+        # =================================================
+
+        if text == "🏴 مباريات إنجلترا اليوم":
+
+            send_matches(
+                chat_id,
+                "england"
+            )
+
+            return "ok"
+
+        # =================================================
+        # INFO
+        # =================================================
+
+        if text == "ℹ️ معلومات البوت":
+
+            send_message(
+                chat_id,
+
+                "ℹ️ <b>معلومات البوت</b>\n\n"
+
+                "🇩🇿 الدوري الجزائري\n"
+                "🏴 الدوري الإنجليزي الممتاز\n\n"
+
+                "📅 مباريات اليوم تلقائيًا\n"
+                "📊 تحليل احتمالي\n"
+                "🧩 التشكيلة المحتملة\n"
+                "✅ التشكيلة الأساسية عند إعلانها\n\n"
+
+                "⚠️ التشكيلات المحتملة ليست رسمية "
+                "وقد تتغير قبل بداية المباراة.",
+
+                main_keyboard()
+            )
+
+            return "ok"
+
+        # =================================================
+        # DEFAULT
+        # =================================================
+
+        send_message(
+            chat_id,
+            "اختر أحد الخيارات من القائمة 👇",
+            main_keyboard()
+        )
+
+        return "ok"
 
     except Exception as e:
 
         print(
-            "❌ Webhook error:",
+            "WEBHOOK ERROR:",
             e
         )
 
-        return "OK", 200
+        return "ok"
 
 
 # =========================================================
-# Routes
+# HEALTH
 # =========================================================
 
 @app.route("/")
 def home():
-    return "Algerian Football Bot 🇩🇿⚽"
 
-
-@app.route("/health")
-def health():
-    return "OK"
+    return (
+        "Football Analysis Bot OK | "
+        f"{today_string()}"
+    )
 
 
 # =========================================================
-# تشغيل
+# DEBUG
+# =========================================================
+
+@app.route("/debug")
+def debug():
+
+    events = get_today_events()
+
+    output = []
+
+    for event in events:
+
+        tournament = event.get(
+            "tournament",
+            {}
+        )
+
+        unique = tournament.get(
+            "uniqueTournament",
+            {}
+        )
+
+        tid = unique.get(
+            "id"
+        )
+
+        if tid not in [
+            ALGERIA_TOURNAMENT_ID,
+            ENGLAND_TOURNAMENT_ID
+        ]:
+
+            continue
+
+        home = event.get(
+            "homeTeam",
+            {}
+        )
+
+        away = event.get(
+            "awayTeam",
+            {}
+        )
+
+        output.append({
+
+            "event_id":
+                event.get("id"),
+
+            "tournament_id":
+                tid,
+
+            "home":
+                home.get("name"),
+
+            "away":
+                away.get("name"),
+
+            "startTimestamp":
+                event.get(
+                    "startTimestamp"
+                )
+        })
+
+    return {
+        "date":
+            today_string(),
+
+        "matches":
+            output
+    }
+
+
+# =========================================================
+# RUN
 # =========================================================
 
 if __name__ == "__main__":
@@ -1281,7 +1723,7 @@ if __name__ == "__main__":
     port = int(
         os.environ.get(
             "PORT",
-            10000
+            5000
         )
     )
 

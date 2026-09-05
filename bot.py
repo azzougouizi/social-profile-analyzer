@@ -9,138 +9,278 @@ from flask import Flask, request
 
 
 # =========================================================
-# SETTINGS
+# CONFIG
 # =========================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+# كود الدخول
 ACCESS_CODE = "1230"
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 app = Flask(__name__)
 
-TZ = ZoneInfo("Africa/Algiers")
+TIMEZONE = ZoneInfo("Africa/Algiers")
+
+# حفظ المستخدمين الذين قاموا بتفعيل الدخول
+authorized_users = set()
 
 
 # =========================================================
-# SOFASCORE
+# SOURCES
 # =========================================================
-
-SOFA_BASE = "https://www.sofascore.com/api/v1"
-
-# Algerian Ligue 1
-ALGERIA_TOURNAMENT_ID = 841
-
+#
+# مصدر مجاني ولا يحتاج API KEY
+#
 # Premier League
-ENGLAND_TOURNAMENT_ID = 17
+# Algerian Ligue 1
+#
+# =========================================================
+
+ESPN_ENGLAND_URL = (
+    "https://site.api.espn.com/apis/site/v2/sports/"
+    "soccer/eng.1/scoreboard"
+)
+
+ESPN_ALGERIA_URL = (
+    "https://site.api.espn.com/apis/site/v2/sports/"
+    "soccer/alg.1/scoreboard"
+)
 
 
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 "
-        "(KHTML, like Gecko) "
-        "Chrome/139.0 Safari/537.36"
-    ),
-    "Accept": "application/json",
+    "User-Agent": "Mozilla/5.0"
 }
 
 
 # =========================================================
-# TEAM NAME TRANSLATION
+# TIME
+# =========================================================
+
+def now_algeria():
+    return datetime.now(TIMEZONE)
+
+
+def today_string():
+    return now_algeria().strftime("%Y%m%d")
+
+
+def today_display():
+    return now_algeria().strftime("%d/%m/%Y")
+
+
+# =========================================================
+# TELEGRAM
+# =========================================================
+
+def telegram_request(method, data):
+
+    try:
+
+        response = requests.post(
+            f"{TELEGRAM_API}/{method}",
+            json=data,
+            timeout=25
+        )
+
+        result = response.json()
+
+        if not result.get("ok"):
+            print("Telegram Error:", result)
+
+        return result
+
+    except Exception as e:
+
+        print("Telegram Exception:", e)
+
+        return None
+
+
+def telegram_send(chat_id, text, keyboard=None):
+
+    data = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
+
+    if keyboard:
+        data["reply_markup"] = keyboard
+
+    return telegram_request(
+        "sendMessage",
+        data
+    )
+
+
+def answer_callback(callback_id):
+
+    return telegram_request(
+        "answerCallbackQuery",
+        {
+            "callback_query_id": callback_id
+        }
+    )
+
+
+# =========================================================
+# KEYBOARDS
+# =========================================================
+
+def access_keyboard():
+
+    return {
+        "remove_keyboard": True
+    }
+
+
+def main_keyboard():
+
+    return {
+        "keyboard": [
+
+            [
+                "🇩🇿 مباريات الجزائر اليوم"
+            ],
+
+            [
+                "🏴 مباريات إنجلترا اليوم"
+            ],
+
+            [
+                "🔴 بث مباشر"
+            ],
+
+            [
+                "ℹ️ معلومات البوت"
+            ]
+
+        ],
+
+        "resize_keyboard": True,
+        "one_time_keyboard": False
+    }
+
+
+def live_keyboard():
+
+    return {
+        "inline_keyboard": [
+
+            [
+                {
+                    "text": "🔄 تحديث البث المباشر",
+                    "callback_data": "refresh_live"
+                }
+            ]
+
+        ]
+    }
+
+
+# =========================================================
+# TEAM NAMES
 # =========================================================
 
 TEAM_NAMES = {
 
-    # -------------------------
-    # Algeria
-    # -------------------------
-
-    "Chlef": "أولمبي الشلف",
-    "ASO Chlef": "أولمبي الشلف",
-
-    "Belouizdad": "شباب بلوزداد",
-    "CR Belouizdad": "شباب بلوزداد",
-
-    "Temouchent": "شباب تموشنت",
-    "CR Temouchent": "شباب تموشنت",
-
-    "Constantine": "شباب قسنطينة",
-    "CS Constantine": "شباب قسنطينة",
-
-    "Kabylie": "شبيبة القبائل",
-    "JS Kabylie": "شبيبة القبائل",
-
-    "Saoura": "شبيبة الساورة",
-    "JS Saoura": "شبيبة الساورة",
-
-    "Rouissat": "مستقبل الرويسات",
-    "MB Rouissat": "مستقبل الرويسات",
+    # =====================================================
+    # ALGERIA
+    # =====================================================
 
     "MC Alger": "مولودية الجزائر",
+    "Mouloudia Club d'Alger": "مولودية الجزائر",
 
-    "Oran": "مولودية وهران",
-    "MC Oran": "مولودية وهران",
-
-    "Biskra": "اتحاد بسكرة",
-    "US Biskra": "اتحاد بسكرة",
+    "CR Belouizdad": "شباب بلوزداد",
 
     "USM Alger": "اتحاد العاصمة",
 
-    "Khenchela": "اتحاد خنشلة",
-    "USM Khenchela": "اتحاد خنشلة",
+    "JS Kabylie": "شبيبة القبائل",
 
-    "Sétif": "وفاق سطيف",
     "ES Sétif": "وفاق سطيف",
 
-    "Ben Aknoun": "نجم بن عكنون",
-    "ES Ben Aknoun": "نجم بن عكنون",
+    "ES Setif": "وفاق سطيف",
 
-    "El Biar": "شبيبة الأبيار",
-    "Biar": "شبيبة الأبيار",
+    "CS Constantine": "شباب قسنطينة",
+
+    "ASO Chlef": "أولمبي الشلف",
+
+    "MC Oran": "مولودية وهران",
+
+    "JS Saoura": "شبيبة الساورة",
+
+    "US Biskra": "اتحاد بسكرة",
+
+    "USM Khenchela": "اتحاد خنشلة",
 
     "Olympique Akbou": "أولمبي أقبو",
-    "Akbou": "أولمبي أقبو",
 
-    # -------------------------
-    # England
-    # -------------------------
+    "Paradou AC": "بارادو",
+
+    "NC Magra": "نجم مقرة",
+
+    "Ben Aknoun": "نجم بن عكنون",
+
+    "ES Mostaganem": "ترجي مستغانم",
+
+    "MC El Bayadh": "مولودية البيض",
+
+    "AS Khroub": "جمعية الخروب",
+
+    "WA Tlemcen": "وداد تلمسان",
+
+
+    # =====================================================
+    # ENGLAND
+    # =====================================================
+
+    "Arsenal": "أرسنال",
+
+    "Aston Villa": "أستون فيلا",
+
+    "Bournemouth": "بورنموث",
+
+    "Brentford": "برينتفورد",
+
+    "Brighton & Hove Albion": "برايتون",
+
+    "Chelsea": "تشيلسي",
+
+    "Crystal Palace": "كريستال بالاس",
+
+    "Everton": "إيفرتون",
+
+    "Fulham": "فولهام",
+
+    "Leeds United": "ليدز يونايتد",
+
+    "Liverpool": "ليفربول",
 
     "Manchester City": "مانشستر سيتي",
+
     "Manchester United": "مانشستر يونايتد",
-    "Liverpool": "ليفربول",
-    "Arsenal": "أرسنال",
-    "Chelsea": "تشيلسي",
-    "Tottenham": "توتنهام",
-    "Tottenham Hotspur": "توتنهام",
-    "Newcastle": "نيوكاسل",
+
     "Newcastle United": "نيوكاسل",
-    "Aston Villa": "أستون فيلا",
-    "Everton": "إيفرتون",
-    "Fulham": "فولهام",
-    "Crystal Palace": "كريستال بالاس",
-    "Brighton": "برايتون",
-    "Brighton & Hove Albion": "برايتون",
-    "Brentford": "برينتفورد",
-    "Sunderland": "سندرلاند",
-    "Leeds": "ليدز يونايتد",
-    "Leeds United": "ليدز يونايتد",
-    "Bournemouth": "بورنموث",
-    "AFC Bournemouth": "بورنموث",
+
     "Nottingham Forest": "نوتنغهام فورست",
-    "Coventry": "كوفنتري",
-    "Coventry City": "كوفنتري",
-    "Hull": "هال سيتي",
-    "Hull City": "هال سيتي",
-    "Ipswich": "إيبسويتش",
-    "Ipswich Town": "إيبسويتش",
+
+    "Sunderland": "سندرلاند",
+
+    "Tottenham Hotspur": "توتنهام",
+
+    "West Ham United": "وست هام",
+
+    "Wolverhampton Wanderers": "وولفرهامبتون",
+
+    "Burnley": "بيرنلي",
+
 }
 
 
-def team_name(name):
-
-    if not name:
-        return "غير معروف"
+def arabic_team(name):
 
     return TEAM_NAMES.get(
         name,
@@ -149,52 +289,204 @@ def team_name(name):
 
 
 # =========================================================
-# TIME
+# GET ESPN DATA
 # =========================================================
 
-def now_algeria():
+def get_scoreboard(url, date=None):
 
-    return datetime.now(TZ)
+    params = {}
 
-
-def today_string():
-
-    return now_algeria().strftime("%Y-%m-%d")
-
-
-# =========================================================
-# SOFASCORE REQUEST
-# =========================================================
-
-def sofa_get(endpoint):
-
-    url = SOFA_BASE + endpoint
+    if date:
+        params["dates"] = date
 
     try:
 
         response = requests.get(
             url,
             headers=HEADERS,
+            params=params,
             timeout=20
+        )
+
+        print(
+            "SOURCE STATUS:",
+            response.status_code
         )
 
         if response.status_code != 200:
 
             print(
-                "Sofascore HTTP:",
-                response.status_code,
-                endpoint
+                "SOURCE ERROR:",
+                response.text[:500]
             )
 
-            return None
+            return []
 
-        return response.json()
+        data = response.json()
+
+        return data.get(
+            "events",
+            []
+        )
 
     except Exception as e:
 
         print(
-            "Sofascore ERROR:",
-            endpoint,
+            "SOURCE EXCEPTION:",
+            e
+        )
+
+        return []
+
+
+# =========================================================
+# PARSE MATCH
+# =========================================================
+
+def parse_event(event, league):
+
+    try:
+
+        competitions = event.get(
+            "competitions",
+            []
+        )
+
+        if not competitions:
+            return None
+
+        competition = competitions[0]
+
+        competitors = competition.get(
+            "competitors",
+            []
+        )
+
+        home = None
+        away = None
+
+        for competitor in competitors:
+
+            team = competitor.get(
+                "team",
+                {}
+            )
+
+            team_name = team.get(
+                "displayName",
+                "Unknown"
+            )
+
+            score = competitor.get(
+                "score",
+                "0"
+            )
+
+            item = {
+
+                "name": arabic_team(team_name),
+
+                "raw_name": team_name,
+
+                "score": score
+
+            }
+
+            if competitor.get("home"):
+
+                home = item
+
+            else:
+
+                away = item
+
+        if not home or not away:
+
+            return None
+
+        status = competition.get(
+            "status",
+            {}
+        )
+
+        status_type = status.get(
+            "type",
+            {}
+        )
+
+        status_name = status_type.get(
+            "name",
+            ""
+        )
+
+        status_detail = status_type.get(
+            "detail",
+            ""
+        )
+
+        clock = status.get(
+            "displayClock",
+            ""
+        )
+
+        date_value = event.get(
+            "date"
+        )
+
+        match_time = "غير محدد"
+
+        if date_value:
+
+            try:
+
+                dt = datetime.fromisoformat(
+                    date_value.replace(
+                        "Z",
+                        "+00:00"
+                    )
+                )
+
+                dt = dt.astimezone(
+                    TIMEZONE
+                )
+
+                match_time = dt.strftime(
+                    "%H:%M"
+                )
+
+            except:
+                pass
+
+        return {
+
+            "id": event.get("id"),
+
+            "league": league,
+
+            "home": home["name"],
+
+            "away": away["name"],
+
+            "home_score": home["score"],
+
+            "away_score": away["score"],
+
+            "time": match_time,
+
+            "status": status_name,
+
+            "status_detail": status_detail,
+
+            "clock": clock,
+
+            "raw_date": date_value
+
+        }
+
+    except Exception as e:
+
+        print(
+            "PARSE ERROR:",
             e
         )
 
@@ -202,794 +494,600 @@ def sofa_get(endpoint):
 
 
 # =========================================================
-# TODAY EVENTS
+# TODAY MATCHES
 # =========================================================
 
-def get_today_events():
+def get_algeria_matches():
 
-    date = today_string()
-
-    data = sofa_get(
-        f"/sport/football/scheduled-events/{date}"
+    events = get_scoreboard(
+        ESPN_ALGERIA_URL,
+        today_string()
     )
-
-    if not data:
-
-        return []
-
-    events = data.get(
-        "events",
-        []
-    )
-
-    return events
-
-
-# =========================================================
-# FILTER LEAGUES
-# =========================================================
-
-def get_league_matches(league):
-
-    if league == "algeria":
-
-        tournament_id = ALGERIA_TOURNAMENT_ID
-
-    elif league == "england":
-
-        tournament_id = ENGLAND_TOURNAMENT_ID
-
-    else:
-
-        return []
-
-    events = get_today_events()
 
     matches = []
 
     for event in events:
 
-        tournament = event.get(
-            "tournament",
-            {}
+        match = parse_event(
+            event,
+            "🇩🇿 الدوري الجزائري"
         )
 
-        unique = tournament.get(
-            "uniqueTournament",
-            {}
+        if match:
+
+            matches.append(match)
+
+    return matches
+
+
+def get_england_matches():
+
+    events = get_scoreboard(
+        ESPN_ENGLAND_URL,
+        today_string()
+    )
+
+    matches = []
+
+    for event in events:
+
+        match = parse_event(
+            event,
+            "🏴 الدوري الإنجليزي الممتاز"
         )
 
-        event_tournament_id = unique.get(
-            "id"
-        )
+        if match:
 
-        if event_tournament_id != tournament_id:
-            continue
+            matches.append(match)
 
-        home = event.get(
-            "homeTeam",
-            {}
-        )
+    return matches
 
-        away = event.get(
-            "awayTeam",
-            {}
-        )
 
-        home_id = home.get("id")
-        away_id = away.get("id")
+# =========================================================
+# LIVE MATCHES
+# =========================================================
 
-        if not home_id or not away_id:
-            continue
+def is_live(match):
 
-        timestamp = event.get(
-            "startTimestamp"
-        )
+    status = match.get(
+        "status",
+        ""
+    )
 
-        if timestamp:
+    live_statuses = [
 
-            dt = datetime.fromtimestamp(
-                timestamp,
-                TZ
-            )
+        "STATUS_IN_PROGRESS",
 
-            date = dt.strftime(
-                "%Y-%m-%d"
-            )
+        "STATUS_HALFTIME",
 
-            time = dt.strftime(
-                "%H:%M"
-            )
+        "STATUS_DELAYED"
 
-        else:
+    ]
 
-            date = today_string()
-            time = "غير محدد"
+    return status in live_statuses
 
-        matches.append({
 
-            "event_id": event.get("id"),
+def get_live_matches():
 
-            "league": (
-                "🇩🇿 الدوري الجزائري"
-                if league == "algeria"
-                else
-                "🏴 الدوري الإنجليزي الممتاز"
-            ),
+    matches = []
 
-            "home": team_name(
-                home.get("name")
-            ),
+    # Algeria
+    algeria = get_algeria_matches()
 
-            "away": team_name(
-                away.get("name")
-            ),
+    # England
+    england = get_england_matches()
 
-            "home_original": home.get(
-                "name"
-            ),
+    all_matches = (
+        algeria
+        +
+        england
+    )
 
-            "away_original": away.get(
-                "name"
-            ),
+    for match in all_matches:
 
-            "home_id": home_id,
-            "away_id": away_id,
+        if is_live(match):
 
-            "date": date,
-            "time": time,
+            matches.append(match)
 
-            "status": event.get(
-                "status",
-                {}
-            ),
+    return matches
 
-            "event": event,
-        })
 
-    # Remove duplicates
-    unique_matches = {}
+# =========================================================
+# TEAM STRENGTH MODEL
+# =========================================================
 
-    for match in matches:
+BASE_STRENGTH = {
 
-        unique_matches[
-            match["event_id"]
-        ] = match
+    # Algeria
 
-    return list(
-        unique_matches.values()
+    "مولودية الجزائر": 1.25,
+
+    "شباب بلوزداد": 1.20,
+
+    "شبيبة القبائل": 1.15,
+
+    "اتحاد العاصمة": 1.15,
+
+    "شباب قسنطينة": 1.05,
+
+    "وفاق سطيف": 1.05,
+
+    "شبيبة الساورة": 1.00,
+
+    "مولودية وهران": 0.95,
+
+    "أولمبي الشلف": 0.95,
+
+    "بارادو": 1.00,
+
+    "أولمبي أقبو": 0.90,
+
+    "اتحاد خنشلة": 0.90,
+
+    "اتحاد بسكرة": 0.85,
+
+
+    # England
+
+    "مانشستر سيتي": 1.35,
+
+    "ليفربول": 1.32,
+
+    "أرسنال": 1.32,
+
+    "تشيلسي": 1.18,
+
+    "مانشستر يونايتد": 1.15,
+
+    "نيوكاسل": 1.12,
+
+    "أستون فيلا": 1.05,
+
+    "توتنهام": 1.05,
+
+    "برايتون": 1.00,
+
+    "كريستال بالاس": 0.95,
+
+    "فولهام": 0.92,
+
+    "برينتفورد": 0.95,
+
+    "إيفرتون": 0.88,
+
+    "بورنموث": 0.95,
+
+    "نوتنغهام فورست": 0.92,
+
+    "ليدز يونايتد": 0.88,
+
+    "سندرلاند": 0.82,
+
+    "بيرنلي": 0.82,
+
+    "وست هام": 0.95,
+
+    "وولفرهامبتون": 0.85
+
+}
+
+
+def team_strength(team):
+
+    return BASE_STRENGTH.get(
+        team,
+        1.0
     )
 
 
 # =========================================================
-# EVENT DETAILS
+# POISSON MODEL
 # =========================================================
 
-def get_event_details(event_id):
+def poisson_probability(k, lam):
 
-    return sofa_get(
-        f"/event/{event_id}"
-    )
+    if lam <= 0:
 
-
-# =========================================================
-# LINEUPS
-# =========================================================
-
-def get_lineups(event_id):
-
-    data = sofa_get(
-        f"/event/{event_id}/lineups"
-    )
-
-    if not data:
-
-        return None
-
-    return data
-
-
-# =========================================================
-# PLAYER NAME
-# =========================================================
-
-def player_name(player):
-
-    if not player:
-        return "غير معروف"
+        return 0
 
     return (
-        player.get("name")
-        or player.get("shortName")
-        or "غير معروف"
+
+        math.exp(-lam)
+
+        *
+
+        (lam ** k)
+
+        /
+
+        math.factorial(k)
+
     )
 
 
-# =========================================================
-# FORMAT PLAYER
-# =========================================================
-
-def format_player(item):
-
-    player = item.get(
-        "player",
-        {}
-    )
-
-    name = player_name(player)
-
-    shirt = item.get(
-        "shirtNumber"
-    )
-
-    if shirt:
-
-        return f"{shirt} - {name}"
-
-    return name
-
-
-# =========================================================
-# FORMATION
-# =========================================================
-
-def formation_text(team_data):
-
-    formation = team_data.get(
-        "formation"
-    )
-
-    if formation:
-
-        return str(
-            formation
-        )
-
-    return "غير محددة"
-
-
-# =========================================================
-# OFFICIAL LINEUP CHECK
-# =========================================================
-
-def lineup_is_official(lineups):
-
-    if not lineups:
-
-        return False
-
-    home = lineups.get(
-        "home"
-    )
-
-    away = lineups.get(
-        "away"
-    )
-
-    if not home or not away:
-
-        return False
-
-    home_players = home.get(
-        "players",
-        []
-    )
-
-    away_players = away.get(
-        "players",
-        []
-    )
-
-    # Usually the official lineup contains
-    # starting XI with statistics/status.
-    #
-    # We don't invent it if source has no players.
-
-    return (
-        len(home_players) > 0
-        and
-        len(away_players) > 0
-    )
-
-
-# =========================================================
-# LINEUP MESSAGE
-# =========================================================
-
-def format_lineup(
-    match,
-    mode
+def outcome_probabilities(
+    home_lambda,
+    away_lambda
 ):
 
-    lineups = get_lineups(
-        match["event_id"]
-    )
+    home_win = 0
 
-    home = match["home"]
-    away = match["away"]
+    draw = 0
 
-    # -----------------------------------------------------
-    # No lineup
-    # -----------------------------------------------------
+    away_win = 0
 
-    if not lineups:
+    scores = []
 
-        if mode == "predicted":
+    for home_goals in range(9):
 
-            return (
-                f"🧩 <b>التشكيلة المحتملة</b>\n\n"
-                f"⚽ {home} × {away}\n\n"
-                "⚠️ لا توجد تشكيلة متوقعة متاحة "
-                "حاليًا من المصدر."
+        for away_goals in range(9):
+
+            probability = (
+
+                poisson_probability(
+                    home_goals,
+                    home_lambda
+                )
+
+                *
+
+                poisson_probability(
+                    away_goals,
+                    away_lambda
+                )
+
             )
 
-        return (
-            f"✅ <b>التشكيلة الأساسية</b>\n\n"
-            f"⚽ {home} × {away}\n\n"
-            "⏳ لم يتم الإعلان عن التشكيلة "
-            "الأساسية بعد."
-        )
-
-    home_data = lineups.get(
-        "home",
-        {}
-    )
-
-    away_data = lineups.get(
-        "away",
-        {}
-    )
-
-    # -----------------------------------------------------
-    # Official
-    # -----------------------------------------------------
-
-    if mode == "official":
-
-        if not lineup_is_official(
-            lineups
-        ):
-
-            return (
-                f"⏳ <b>التشكيلة الأساسية</b>\n\n"
-                f"⚽ {home} × {away}\n\n"
-                "لم يتم الإعلان عن التشكيلة "
-                "الأساسية رسميًا بعد."
+            scores.append(
+                (
+                    home_goals,
+                    away_goals,
+                    probability
+                )
             )
 
-    title = (
-        "🧩 التشكيلة المحتملة"
-        if mode == "predicted"
-        else
-        "✅ التشكيلة الأساسية"
+            if home_goals > away_goals:
+
+                home_win += probability
+
+            elif home_goals == away_goals:
+
+                draw += probability
+
+            else:
+
+                away_win += probability
+
+    return (
+
+        home_win,
+
+        draw,
+
+        away_win,
+
+        scores
+
     )
-
-    text = []
-
-    text.append(
-        f"<b>{title}</b>"
-    )
-
-    text.append(
-        f"⚽ {home} × {away}"
-    )
-
-    text.append("")
-
-    # =====================================================
-    # HOME
-    # =====================================================
-
-    text.append(
-        f"🏠 <b>{home}</b>"
-    )
-
-    text.append(
-        f"📐 الخطة: "
-        f"{formation_text(home_data)}"
-    )
-
-    home_players = home_data.get(
-        "players",
-        []
-    )
-
-    starters = []
-    substitutes = []
-
-    for item in home_players:
-
-        # SofaScore uses sub flag
-        sub = item.get(
-            "substitute",
-            False
-        )
-
-        if sub:
-
-            substitutes.append(
-                format_player(item)
-            )
-
-        else:
-
-            starters.append(
-                format_player(item)
-            )
-
-    if starters:
-
-        text.append("")
-        text.append("🔹 <b>الأساسيون</b>")
-
-        for player in starters[:11]:
-
-            text.append(
-                f"• {player}"
-            )
-
-    if mode == "official" and substitutes:
-
-        text.append("")
-        text.append("🔄 <b>البدلاء</b>")
-
-        for player in substitutes:
-
-            text.append(
-                f"• {player}"
-            )
-
-    # =====================================================
-    # AWAY
-    # =====================================================
-
-    text.append("")
-    text.append(
-        f"✈️ <b>{away}</b>"
-    )
-
-    text.append(
-        f"📐 الخطة: "
-        f"{formation_text(away_data)}"
-    )
-
-    away_players = away_data.get(
-        "players",
-        []
-    )
-
-    starters = []
-    substitutes = []
-
-    for item in away_players:
-
-        sub = item.get(
-            "substitute",
-            False
-        )
-
-        if sub:
-
-            substitutes.append(
-                format_player(item)
-            )
-
-        else:
-
-            starters.append(
-                format_player(item)
-            )
-
-    if starters:
-
-        text.append("")
-        text.append("🔹 <b>الأساسيون</b>")
-
-        for player in starters[:11]:
-
-            text.append(
-                f"• {player}"
-            )
-
-    if mode == "official" and substitutes:
-
-        text.append("")
-        text.append("🔄 <b>البدلاء</b>")
-
-        for player in substitutes:
-
-            text.append(
-                f"• {player}"
-            )
-
-    text.append("")
-
-    if mode == "predicted":
-
-        text.append(
-            "ℹ️ هذه تشكيلة متوقعة وليست رسمية."
-        )
-
-    else:
-
-        text.append(
-            "✅ التشكيلة مأخوذة من بيانات "
-            "المباراة بعد إعلانها."
-        )
-
-    return "\n".join(text)
 
 
 # =========================================================
-# MATCH KEYBOARD
+# OVER / UNDER
 # =========================================================
 
-def match_keyboard(event_id):
+def under_probability(
+    total_lambda,
+    line
+):
 
-    return {
+    max_goals = math.floor(line)
 
-        "inline_keyboard": [
+    result = 0
 
-            [
-                {
-                    "text": "📊 التحليل",
-                    "callback_data":
-                    f"analysis:{event_id}"
-                }
-            ],
+    for goals in range(
+        max_goals + 1
+    ):
 
-            [
-                {
-                    "text": "🧩 التشكيلة المحتملة",
-                    "callback_data":
-                    f"predicted:{event_id}"
-                }
-            ],
+        result += poisson_probability(
+            goals,
+            total_lambda
+        )
 
-            [
-                {
-                    "text": "✅ التشكيلة الأساسية",
-                    "callback_data":
-                    f"official:{event_id}"
-                }
-            ],
+    return result
 
-        ]
 
-    }
+def over_probability(
+    total_lambda,
+    line
+):
+
+    return max(
+
+        0,
+
+        1 -
+
+        under_probability(
+            total_lambda,
+            line
+        )
+
+    )
+
+
+# =========================================================
+# BTTS
+# =========================================================
+
+def btts_probability(
+    home_lambda,
+    away_lambda
+):
+
+    home_zero = poisson_probability(
+        0,
+        home_lambda
+    )
+
+    away_zero = poisson_probability(
+        0,
+        away_lambda
+    )
+
+    both_zero = math.exp(
+
+        -(
+
+            home_lambda
+            +
+            away_lambda
+
+        )
+
+    )
+
+    yes = (
+
+        1
+        -
+        home_zero
+        -
+        away_zero
+        +
+        both_zero
+
+    )
+
+    return max(
+        0,
+        min(
+            1,
+            yes
+        )
+    )
 
 
 # =========================================================
 # MATCH ANALYSIS
 # =========================================================
 
-def poisson(k, lam):
-
-    return (
-        math.exp(-lam)
-        *
-        lam ** k
-        /
-        math.factorial(k)
-    )
-
-
-def probability_over(
-    total_lambda,
-    line
-):
-
-    maximum_under = int(
-        math.floor(line)
-    )
-
-    under = 0.0
-
-    for goals in range(
-        maximum_under + 1
-    ):
-
-        under += poisson(
-            goals,
-            total_lambda
-        )
-
-    return max(
-        0.0,
-        min(
-            1.0,
-            1.0 - under
-        )
-    )
-
-
 def calculate_analysis(match):
 
     home = match["home"]
+
     away = match["away"]
 
-    # ---------------------------------------------
-    # Base strength
-    # ---------------------------------------------
-
-    # These are intentionally modest defaults.
-    # Later we can replace them with automatic
-    # last-5 / last-10 match statistics.
-
-    strength = {
-
-        "مانشستر سيتي": 1.35,
-        "أرسنال": 1.30,
-        "ليفربول": 1.30,
-        "تشيلسي": 1.15,
-        "مانشستر يونايتد": 1.10,
-
-        "شباب بلوزداد": 1.20,
-        "مولودية الجزائر": 1.20,
-        "شبيبة القبائل": 1.10,
-        "اتحاد العاصمة": 1.10,
-
-        "أولمبي الشلف": 0.95,
-        "شباب قسنطينة": 1.00,
-        "شباب تموشنت": 0.85,
-
-    }
-
-    hs = strength.get(
-        home,
-        1.0
+    home_strength = team_strength(
+        home
     )
 
-    aws = strength.get(
-        away,
-        1.0
+    away_strength = team_strength(
+        away
     )
 
-    if "الجزائري" in match["league"]:
+    league = match["league"]
 
-        base = 1.05
-        home_advantage = 1.15
+    # Different goal environments
+
+    if "الجزائري" in league:
+
+        base_goal = 1.05
+
+        home_advantage = 0.18
 
     else:
 
-        base = 1.35
-        home_advantage = 1.18
+        base_goal = 1.35
+
+        home_advantage = 0.22
+
+
+    # Expected goals
 
     home_lambda = (
-        base
-        * hs
-        * home_advantage
-        / max(
+
+        base_goal
+        *
+        home_strength
+        *
+        (1 + home_advantage)
+
+        /
+
+        max(
             0.75,
-            aws
+            away_strength
         )
+
     )
+
 
     away_lambda = (
-        base
-        * aws
-        / max(
-            0.80,
-            hs
+
+        base_goal
+        *
+        away_strength
+
+        /
+
+        max(
+            0.75,
+            home_strength
         )
+
     )
 
+
+    # Realistic limits
+
     home_lambda = max(
-        0.20,
+
+        0.25,
+
         min(
             home_lambda,
             3.5
         )
+
     )
 
+
     away_lambda = max(
+
         0.20,
+
         min(
             away_lambda,
             3.2
         )
+
     )
 
-    home_win = 0
-    draw = 0
-    away_win = 0
 
-    scores = []
+    home_win, draw, away_win, scores = (
 
-    for h in range(9):
+        outcome_probabilities(
 
-        for a in range(9):
+            home_lambda,
 
-            p = (
-                poisson(
-                    h,
-                    home_lambda
-                )
-                *
-                poisson(
-                    a,
-                    away_lambda
-                )
-            )
+            away_lambda
 
-            scores.append(
-                (h, a, p)
-            )
+        )
 
-            if h > a:
+    )
 
-                home_win += p
-
-            elif h == a:
-
-                draw += p
-
-            else:
-
-                away_win += p
 
     scores.sort(
+
         key=lambda x: x[2],
+
         reverse=True
+
     )
 
-    total = (
-        home_lambda
-        +
+
+    btts_yes = btts_probability(
+
+        home_lambda,
+
         away_lambda
+
     )
+
+
+    strongest = max(
+
+        [
+
+            (home, home_win),
+
+            ("تعادل", draw),
+
+            (away, away_win)
+
+        ],
+
+        key=lambda x: x[1]
+
+    )[0]
+
 
     return {
 
-        "home_lambda":
-            home_lambda,
+        "home_lambda": home_lambda,
 
-        "away_lambda":
-            away_lambda,
+        "away_lambda": away_lambda,
 
-        "home_win":
-            home_win,
+        "home_win": home_win,
 
-        "draw":
-            draw,
+        "draw": draw,
 
-        "away_win":
-            away_win,
+        "away_win": away_win,
 
-        "total":
-            total,
+        "scores": scores[:5],
 
-        "scores":
-            scores[:5],
+        "btts_yes": btts_yes,
+
+        "btts_no": 1 - btts_yes,
+
+        "strongest": strongest
+
     }
 
 
-def pct(x):
+# =========================================================
+# FORMAT
+# =========================================================
 
-    return f"{x * 100:.1f}%"
+def pct(value):
+
+    return f"{value * 100:.1f}%"
 
 
-def format_analysis(match):
+def format_match_analysis(match):
 
-    a = calculate_analysis(
+    analysis = calculate_analysis(
         match
     )
 
+    total_lambda = (
+
+        analysis["home_lambda"]
+
+        +
+
+        analysis["away_lambda"]
+
+    )
+
+
     home = match["home"]
+
     away = match["away"]
 
+
     text = []
+
+    text.append(
+        "━━━━━━━━━━━━━━━━━━"
+    )
 
     text.append(
         f"⚽ <b>{home} × {away}</b>"
     )
 
     text.append(
+        "━━━━━━━━━━━━━━━━━━"
+    )
+
+    text.append("")
+
+    text.append(
         f"🏆 {match['league']}"
     )
 
     text.append(
-        f"🕐 {match['time']}"
+        f"🕐 الساعة: {match['time']}"
     )
 
     text.append("")
@@ -998,26 +1096,39 @@ def format_analysis(match):
         "📊 <b>احتمالات المباراة</b>"
     )
 
+    text.append("")
+
     text.append(
-        f"🏠 {home}: "
-        f"<b>{pct(a['home_win'])}</b>"
+        f"🏠 فوز {home}: "
+        f"<b>{pct(analysis['home_win'])}</b>"
     )
 
     text.append(
         f"🤝 التعادل: "
-        f"<b>{pct(a['draw'])}</b>"
+        f"<b>{pct(analysis['draw'])}</b>"
     )
 
     text.append(
-        f"✈️ {away}: "
-        f"<b>{pct(a['away_win'])}</b>"
+        f"✈️ فوز {away}: "
+        f"<b>{pct(analysis['away_win'])}</b>"
     )
 
     text.append("")
 
     text.append(
-        f"🎯 الأهداف المتوقعة: "
-        f"<b>{a['total']:.2f}</b>"
+        f"🎯 الأقرب: "
+        f"<b>{analysis['strongest']}</b>"
+    )
+
+    text.append("")
+
+    text.append(
+        "⚽ <b>الأهداف المتوقعة</b>"
+    )
+
+    text.append(
+        f"المعدل المتوقع: "
+        f"<b>{total_lambda:.2f}</b> هدف"
     )
 
     text.append("")
@@ -1026,319 +1137,381 @@ def format_analysis(match):
         "📈 <b>Over / Under</b>"
     )
 
-    for line in [
-        0.5,
-        1.5,
-        2.5,
-        3.5,
-        4.5,
-        5.5
-    ]:
+    lines = [
 
-        over = probability_over(
-            a["total"],
+        0.5,
+
+        1.5,
+
+        2.5,
+
+        3.5,
+
+        4.5,
+
+        5.5
+
+    ]
+
+
+    for line in lines:
+
+        over = over_probability(
+
+            total_lambda,
+
             line
+
         )
+
 
         under = 1 - over
 
+
         text.append(
-            f"Over {line}: "
-            f"<b>{pct(over)}</b> "
-            f"| Under {line}: "
-            f"<b>{pct(under)}</b>"
+
+            f"⚽ {line} | "
+
+            f"Over <b>{pct(over)}</b> "
+
+            f"• Under <b>{pct(under)}</b>"
+
         )
+
 
     text.append("")
 
     text.append(
-        "🎯 <b>النتائج الأكثر احتمالًا</b>"
+        "🥅 <b>يسجل الفريقان</b>"
     )
 
-    for h, aw, p in a["scores"]:
+    text.append(
 
-        text.append(
-            f"{h} - {aw}: "
-            f"<b>{pct(p)}</b>"
-        )
+        f"نعم: <b>{pct(analysis['btts_yes'])}</b>"
+
+    )
+
+    text.append(
+
+        f"لا: <b>{pct(analysis['btts_no'])}</b>"
+
+    )
 
     text.append("")
 
     text.append(
-        "⚠️ التحليل احتمالي وليس ضمانًا."
+        "🔢 <b>النتائج الأكثر احتمالًا</b>"
+    )
+
+    for h, a, probability in analysis["scores"]:
+
+        text.append(
+
+            f"⚽ {h} - {a} "
+
+            f"<b>{pct(probability)}</b>"
+
+        )
+
+
+    text.append("")
+
+    text.append(
+        "⚠️ <i>هذا تحليل احتمالي إحصائي وليس ضمانًا للنتيجة.</i>"
     )
 
     return "\n".join(text)
 
 
 # =========================================================
-# TELEGRAM
+# LIVE FORMAT
 # =========================================================
 
-def send_message(
-    chat_id,
-    text,
-    reply_markup=None
-):
+def format_live_match(match):
 
-    data = {
+    home = match["home"]
 
-        "chat_id":
-            chat_id,
+    away = match["away"]
 
-        "text":
-            text,
+    home_score = match["home_score"]
 
-        "parse_mode":
-            "HTML",
+    away_score = match["away_score"]
 
-        "disable_web_page_preview":
-            True,
-    }
+    detail = match["status_detail"]
 
-    if reply_markup:
-
-        data[
-            "reply_markup"
-        ] = reply_markup
-
-    try:
-
-        requests.post(
-            f"{TELEGRAM_API}/sendMessage",
-            json=data,
-            timeout=20
-        )
-
-    except Exception as e:
-
-        print(
-            "Telegram send error:",
-            e
-        )
+    clock = match["clock"]
 
 
-def answer_callback(
-    callback_id
-):
+    text = []
 
-    try:
-
-        requests.post(
-            f"{TELEGRAM_API}/answerCallbackQuery",
-            json={
-                "callback_query_id":
-                    callback_id
-            },
-            timeout=10
-        )
-
-    except Exception as e:
-
-        print(
-            "Callback error:",
-            e
-        )
-
-
-# =========================================================
-# MATCH MENU
-# =========================================================
-
-def send_matches(
-    chat_id,
-    league
-):
-
-    matches = get_league_matches(
-        league
+    text.append(
+        "🔴 <b>بث مباشر</b>"
     )
 
-    if not matches:
+    text.append("")
 
-        send_message(
-            chat_id,
-
-            "⚠️ لا توجد مباريات متاحة "
-            f"لهذه البطولة اليوم "
-            f"({today_string()}).",
-
-            main_keyboard()
-        )
-
-        return
-
-    title = (
-        "🇩🇿 مباريات الجزائر اليوم"
-        if league == "algeria"
-        else
-        "🏴 مباريات إنجلترا اليوم"
+    text.append(
+        f"🏆 {match['league']}"
     )
 
-    send_message(
-        chat_id,
+    text.append("")
 
-        f"<b>{title}</b>\n"
-        f"📅 {today_string()}\n\n"
-        f"تم العثور على "
-        f"<b>{len(matches)}</b> مباراة."
+    text.append(
+        f"🏠 <b>{home}</b>"
     )
 
-    for match in matches:
+    text.append(
+        f"⚽ <b>{home_score} - {away_score}</b>"
+    )
 
-        message = (
-            f"⚽ <b>{match['home']} × "
-            f"{match['away']}</b>\n\n"
-            f"🕐 {match['time']}\n"
-            f"🏆 {match['league']}\n\n"
-            "اختر ما تريد:"
+    text.append(
+        f"✈️ <b>{away}</b>"
+    )
+
+    text.append("")
+
+    if clock:
+
+        text.append(
+            f"⏱️ {clock}"
         )
 
-        send_message(
-            chat_id,
-            message,
-            match_keyboard(
-                match["event_id"]
-            )
+    if detail:
+
+        text.append(
+            f"📌 {detail}"
         )
+
+    return "\n".join(text)
 
 
 # =========================================================
-# MAIN KEYBOARD
+# LIVE BUTTON
 # =========================================================
 
-def main_keyboard():
+def live_button(match):
+
+    match_id = match.get("id")
+
+    if not match_id:
+
+        return None
 
     return {
 
-        "keyboard": [
+        "inline_keyboard": [
 
             [
-                {
-                    "text":
-                    "🇩🇿 مباريات الجزائر اليوم"
-                }
-            ],
 
-            [
                 {
-                    "text":
-                    "🏴 مباريات إنجلترا اليوم"
-                }
-            ],
 
-            [
-                {
-                    "text":
-                    "ℹ️ معلومات البوت"
+                    "text": (
+                        "📊 تحليل المباراة"
+                    ),
+
+                    "callback_data": (
+                        f"analysis:{match_id}"
+                    )
+
                 }
+
             ]
 
-        ],
+        ]
 
-        "resize_keyboard":
-            True
     }
 
 
 # =========================================================
-# FIND EVENT BY ID
+# FIND MATCH BY ID
 # =========================================================
 
-def find_event(event_id):
+def find_match(match_id):
 
-    events = get_today_events()
+    all_matches = (
 
-    for event in events:
+        get_algeria_matches()
 
-        if event.get("id") == event_id:
+        +
 
-            home = event.get(
-                "homeTeam",
-                {}
-            )
+        get_england_matches()
 
-            away = event.get(
-                "awayTeam",
-                {}
-            )
+    )
 
-            timestamp = event.get(
-                "startTimestamp"
-            )
+    for match in all_matches:
 
-            if timestamp:
+        if str(match.get("id")) == str(match_id):
 
-                dt = datetime.fromtimestamp(
-                    timestamp,
-                    TZ
-                )
-
-                time = dt.strftime(
-                    "%H:%M"
-                )
-
-                date = dt.strftime(
-                    "%Y-%m-%d"
-                )
-
-            else:
-
-                time = "غير محدد"
-                date = today_string()
-
-            tournament = event.get(
-                "tournament",
-                {}
-            )
-
-            unique = tournament.get(
-                "uniqueTournament",
-                {}
-            )
-
-            tournament_id = unique.get(
-                "id"
-            )
-
-            if tournament_id == ALGERIA_TOURNAMENT_ID:
-
-                league = "🇩🇿 الدوري الجزائري"
-
-            elif tournament_id == ENGLAND_TOURNAMENT_ID:
-
-                league = "🏴 الدوري الإنجليزي الممتاز"
-
-            else:
-
-                league = "الدوري"
-
-            return {
-
-                "event_id":
-                    event_id,
-
-                "league":
-                    league,
-
-                "home":
-                    team_name(
-                        home.get("name")
-                    ),
-
-                "away":
-                    team_name(
-                        away.get("name")
-                    ),
-
-                "time":
-                    time,
-
-                "date":
-                    date,
-            }
+            return match
 
     return None
+
+
+# =========================================================
+# ACCESS CHECK
+# =========================================================
+
+def is_authorized(chat_id):
+
+    return chat_id in authorized_users
+
+
+# =========================================================
+# CALLBACK
+# =========================================================
+
+def handle_callback(callback):
+
+    callback_id = callback.get("id")
+
+    message = callback.get(
+        "message",
+        {}
+    )
+
+    chat_id = (
+
+        message
+        .get("chat", {})
+        .get("id")
+
+    )
+
+    data = callback.get(
+        "data",
+        ""
+    )
+
+
+    answer_callback(
+        callback_id
+    )
+
+
+    if not is_authorized(chat_id):
+
+        telegram_send(
+
+            chat_id,
+
+            "🔐 يجب إدخال كود الدخول أولًا."
+
+        )
+
+        return "ok"
+
+
+    # -----------------------------------------------------
+    # REFRESH LIVE
+    # -----------------------------------------------------
+
+    if data == "refresh_live":
+
+        telegram_send(
+
+            chat_id,
+
+            "🔄 جاري تحديث البث المباشر..."
+
+        )
+
+
+        live_matches = get_live_matches()
+
+
+        if not live_matches:
+
+            telegram_send(
+
+                chat_id,
+
+                "🔴 لا توجد مباراة مباشرة حاليًا.\n\n"
+                "اضغط على الزر لاحقًا للتحديث.",
+
+                live_keyboard()
+
+            )
+
+            return "ok"
+
+
+        for match in live_matches:
+
+            telegram_send(
+
+                chat_id,
+
+                format_live_match(match),
+
+                live_button(match)
+
+            )
+
+
+        telegram_send(
+
+            chat_id,
+
+            "🔄 يمكنك تحديث النتائج مرة أخرى:",
+
+            live_keyboard()
+
+        )
+
+        return "ok"
+
+
+    # -----------------------------------------------------
+    # ANALYSIS
+    # -----------------------------------------------------
+
+    if data.startswith("analysis:"):
+
+        match_id = data.split(
+            ":",
+            1
+        )[1]
+
+
+        telegram_send(
+
+            chat_id,
+
+            "🤖 جاري تحليل المباراة..."
+
+        )
+
+
+        match = find_match(
+            match_id
+        )
+
+
+        if not match:
+
+            telegram_send(
+
+                chat_id,
+
+                "❌ لم أتمكن من العثور على المباراة."
+
+            )
+
+            return "ok"
+
+
+        telegram_send(
+
+            chat_id,
+
+            format_match_analysis(match)
+
+        )
+
+        return "ok"
+
+
+    return "ok"
 
 
 # =========================================================
@@ -1349,177 +1522,67 @@ def find_event(event_id):
     "/telegram/webhook",
     methods=["POST"]
 )
-def webhook():
+def telegram_webhook():
 
     try:
 
         update = request.get_json(
             silent=True
-        )
+        ) or {}
 
-        if not update:
-
-            return "ok"
 
         # =================================================
-        # CALLBACK BUTTON
+        # CALLBACK
         # =================================================
 
         callback = update.get(
             "callback_query"
         )
 
+
         if callback:
 
-            callback_id = callback.get(
-                "id"
+            return handle_callback(
+                callback
             )
 
-            data = callback.get(
-                "data",
-                ""
-            )
-
-            message = callback.get(
-                "message",
-                {}
-            )
-
-            chat = message.get(
-                "chat",
-                {}
-            )
-
-            chat_id = chat.get(
-                "id"
-            )
-
-            answer_callback(
-                callback_id
-            )
-
-            if not chat_id:
-
-                return "ok"
-
-            try:
-
-                mode, event_id = data.split(
-                    ":",
-                    1
-                )
-
-                event_id = int(
-                    event_id
-                )
-
-            except:
-
-                return "ok"
-
-            match = find_event(
-                event_id
-            )
-
-            if not match:
-
-                send_message(
-                    chat_id,
-                    "⚠️ لم أجد بيانات المباراة."
-                )
-
-                return "ok"
-
-            # ---------------------------------------------
-            # ANALYSIS
-            # ---------------------------------------------
-
-            if mode == "analysis":
-
-                send_message(
-                    chat_id,
-                    format_analysis(
-                        match
-                    ),
-                    match_keyboard(
-                        event_id
-                    )
-                )
-
-                return "ok"
-
-            # ---------------------------------------------
-            # PREDICTED LINEUP
-            # ---------------------------------------------
-
-            if mode == "predicted":
-
-                send_message(
-                    chat_id,
-                    format_lineup(
-                        match,
-                        "predicted"
-                    ),
-                    match_keyboard(
-                        event_id
-                    )
-                )
-
-                return "ok"
-
-            # ---------------------------------------------
-            # OFFICIAL LINEUP
-            # ---------------------------------------------
-
-            if mode == "official":
-
-                send_message(
-                    chat_id,
-                    format_lineup(
-                        match,
-                        "official"
-                    ),
-                    match_keyboard(
-                        event_id
-                    )
-                )
-
-                return "ok"
-
-            return "ok"
 
         # =================================================
-        # NORMAL MESSAGE
+        # MESSAGE
         # =================================================
 
         message = update.get(
             "message"
         )
 
+
         if not message:
 
             return "ok"
 
-        chat = message.get(
-            "chat",
-            {}
+
+        chat_id = (
+
+            message
+            .get("chat", {})
+            .get("id")
+
         )
 
-        chat_id = chat.get(
-            "id"
-        )
 
         text = (
-            message.get(
-                "text",
-                ""
-            )
+
+            message
+            .get("text", "")
             .strip()
+
         )
+
 
         if not chat_id:
 
             return "ok"
+
 
         # =================================================
         # START
@@ -1527,31 +1590,60 @@ def webhook():
 
         if text == "/start":
 
-            send_message(
+            telegram_send(
+
                 chat_id,
 
-                "⚽ <b>مرحبًا بك</b>\n\n"
-                "اختر البطولة:",
-                main_keyboard()
+                "🔐 <b>مرحبًا بك</b>\n\n"
+                "أدخل كود الدخول للمتابعة."
+
             )
 
             return "ok"
 
+
         # =================================================
-        # ACCESS
+        # ACCESS CODE
         # =================================================
 
         if text == ACCESS_CODE:
 
-            send_message(
+            authorized_users.add(
+                chat_id
+            )
+
+
+            telegram_send(
+
                 chat_id,
 
-                "✅ تم قبول الكود.\n\n"
-                "اختر البطولة:",
+                "✅ <b>تم تفعيل الدخول بنجاح!</b>\n\n"
+                "⚽ اختر الخدمة التي تريد استخدامها:",
+
                 main_keyboard()
+
             )
 
             return "ok"
+
+
+        # =================================================
+        # CHECK ACCESS
+        # =================================================
+
+        if not is_authorized(chat_id):
+
+            telegram_send(
+
+                chat_id,
+
+                "🔐 يجب إدخال كود الدخول أولًا.\n\n"
+                "اكتب الكود للمتابعة."
+
+            )
+
+            return "ok"
+
 
         # =================================================
         # ALGERIA
@@ -1559,12 +1651,89 @@ def webhook():
 
         if text == "🇩🇿 مباريات الجزائر اليوم":
 
-            send_matches(
+            telegram_send(
+
                 chat_id,
-                "algeria"
+
+                "⏳ جاري البحث عن مباريات الجزائر اليوم..."
+
             )
 
+
+            matches = get_algeria_matches()
+
+
+            if not matches:
+
+                telegram_send(
+
+                    chat_id,
+
+                    f"🇩🇿 لا توجد مباريات متاحة اليوم "
+                    f"({today_display()}).",
+
+                    main_keyboard()
+
+                )
+
+                return "ok"
+
+
+            telegram_send(
+
+                chat_id,
+
+                f"🇩🇿 <b>مباريات الجزائر اليوم</b>\n"
+                f"📅 {today_display()}\n\n"
+                f"⚽ عدد المباريات: <b>{len(matches)}</b>",
+
+                main_keyboard()
+
+            )
+
+
+            for match in matches:
+
+                keyboard = {
+
+                    "inline_keyboard": [
+
+                        [
+
+                            {
+
+                                "text": (
+                                    "📊 تحليل المباراة"
+                                ),
+
+                                "callback_data": (
+                                    f"analysis:{match['id']}"
+                                )
+
+                            }
+
+                        ]
+
+                    ]
+
+                }
+
+
+                telegram_send(
+
+                    chat_id,
+
+                    f"⚽ <b>{match['home']} × {match['away']}</b>\n\n"
+                    f"🕐 الساعة: {match['time']}\n"
+                    f"🏆 {match['league']}",
+
+                    keyboard
+
+                )
+
+
             return "ok"
+
 
         # =================================================
         # ENGLAND
@@ -1572,12 +1741,152 @@ def webhook():
 
         if text == "🏴 مباريات إنجلترا اليوم":
 
-            send_matches(
+            telegram_send(
+
                 chat_id,
-                "england"
+
+                "⏳ جاري البحث عن مباريات إنجلترا اليوم..."
+
             )
 
+
+            matches = get_england_matches()
+
+
+            if not matches:
+
+                telegram_send(
+
+                    chat_id,
+
+                    f"🏴 لا توجد مباريات متاحة اليوم "
+                    f"({today_display()}).",
+
+                    main_keyboard()
+
+                )
+
+                return "ok"
+
+
+            telegram_send(
+
+                chat_id,
+
+                f"🏴 <b>مباريات إنجلترا اليوم</b>\n"
+                f"📅 {today_display()}\n\n"
+                f"⚽ عدد المباريات: <b>{len(matches)}</b>",
+
+                main_keyboard()
+
+            )
+
+
+            for match in matches:
+
+                keyboard = {
+
+                    "inline_keyboard": [
+
+                        [
+
+                            {
+
+                                "text": (
+                                    "📊 تحليل المباراة"
+                                ),
+
+                                "callback_data": (
+                                    f"analysis:{match['id']}"
+                                )
+
+                            }
+
+                        ]
+
+                    ]
+
+                }
+
+
+                telegram_send(
+
+                    chat_id,
+
+                    f"⚽ <b>{match['home']} × {match['away']}</b>\n\n"
+                    f"🕐 الساعة: {match['time']}\n"
+                    f"🏆 {match['league']}",
+
+                    keyboard
+
+                )
+
+
             return "ok"
+
+
+        # =================================================
+        # LIVE
+        # =================================================
+
+        if text == "🔴 بث مباشر":
+
+            telegram_send(
+
+                chat_id,
+
+                "🔄 جاري البحث عن المباريات المباشرة..."
+
+            )
+
+
+            live_matches = get_live_matches()
+
+
+            if not live_matches:
+
+                telegram_send(
+
+                    chat_id,
+
+                    "🔴 <b>البث المباشر</b>\n\n"
+                    "لا توجد مباراة مباشرة حاليًا.\n\n"
+                    "يمكنك الضغط على تحديث لاحقًا.",
+
+                    live_keyboard()
+
+                )
+
+                return "ok"
+
+
+            telegram_send(
+
+                chat_id,
+
+                f"🔴 <b>المباريات المباشرة الآن</b>\n\n"
+                f"عدد المباريات: <b>{len(live_matches)}</b>",
+
+                live_keyboard()
+
+            )
+
+
+            for match in live_matches:
+
+                telegram_send(
+
+                    chat_id,
+
+                    format_live_match(match),
+
+                    live_button(match)
+
+                )
+
+
+            return "ok"
+
 
         # =================================================
         # INFO
@@ -1585,38 +1894,45 @@ def webhook():
 
         if text == "ℹ️ معلومات البوت":
 
-            send_message(
+            telegram_send(
+
                 chat_id,
 
                 "ℹ️ <b>معلومات البوت</b>\n\n"
-
                 "🇩🇿 الدوري الجزائري\n"
-                "🏴 الدوري الإنجليزي الممتاز\n\n"
-
-                "📅 مباريات اليوم تلقائيًا\n"
-                "📊 تحليل احتمالي\n"
-                "🧩 التشكيلة المحتملة\n"
-                "✅ التشكيلة الأساسية عند إعلانها\n\n"
-
-                "⚠️ التشكيلات المحتملة ليست رسمية "
-                "وقد تتغير قبل بداية المباراة.",
+                "🏴 الدوري الإنجليزي الممتاز\n"
+                "🔴 مباريات مباشرة\n"
+                "📊 تحليل احتمالي للمباريات\n"
+                "⚽ توقع عدد الأهداف\n"
+                "📈 Over / Under\n"
+                "🥅 احتمال تسجيل الفريقين\n"
+                "🎯 النتائج الأكثر احتمالًا\n\n"
+                "⚠️ التحليلات إحصائية واحتمالية وليست نتائج مضمونة.",
 
                 main_keyboard()
+
             )
 
             return "ok"
 
+
         # =================================================
-        # DEFAULT
+        # UNKNOWN
         # =================================================
 
-        send_message(
+        telegram_send(
+
             chat_id,
+
             "اختر أحد الخيارات من القائمة 👇",
+
             main_keyboard()
+
         )
 
+
         return "ok"
+
 
     except Exception as e:
 
@@ -1629,15 +1945,21 @@ def webhook():
 
 
 # =========================================================
-# HEALTH
+# HOME
 # =========================================================
 
-@app.route("/")
+@app.route(
+    "/",
+    methods=["GET"]
+)
 def home():
 
     return (
-        "Football Analysis Bot OK | "
-        f"{today_string()}"
+
+        "Football Bot is running! "
+
+        f"Date: {today_display()}"
+
     )
 
 
@@ -1645,72 +1967,22 @@ def home():
 # DEBUG
 # =========================================================
 
-@app.route("/debug")
+@app.route(
+    "/debug",
+    methods=["GET"]
+)
 def debug():
 
-    events = get_today_events()
-
-    output = []
-
-    for event in events:
-
-        tournament = event.get(
-            "tournament",
-            {}
-        )
-
-        unique = tournament.get(
-            "uniqueTournament",
-            {}
-        )
-
-        tid = unique.get(
-            "id"
-        )
-
-        if tid not in [
-            ALGERIA_TOURNAMENT_ID,
-            ENGLAND_TOURNAMENT_ID
-        ]:
-
-            continue
-
-        home = event.get(
-            "homeTeam",
-            {}
-        )
-
-        away = event.get(
-            "awayTeam",
-            {}
-        )
-
-        output.append({
-
-            "event_id":
-                event.get("id"),
-
-            "tournament_id":
-                tid,
-
-            "home":
-                home.get("name"),
-
-            "away":
-                away.get("name"),
-
-            "startTimestamp":
-                event.get(
-                    "startTimestamp"
-                )
-        })
-
     return {
-        "date":
-            today_string(),
 
-        "matches":
-            output
+        "date": today_display(),
+
+        "algeria": get_algeria_matches(),
+
+        "england": get_england_matches(),
+
+        "live": get_live_matches()
+
     }
 
 
@@ -1721,13 +1993,19 @@ def debug():
 if __name__ == "__main__":
 
     port = int(
-        os.environ.get(
+
+        os.getenv(
             "PORT",
-            5000
+            "10000"
         )
+
     )
 
+
     app.run(
+
         host="0.0.0.0",
+
         port=port
+
     )

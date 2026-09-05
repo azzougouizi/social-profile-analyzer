@@ -1,38 +1,33 @@
 import os
 import re
 import requests
-from bs4 import BeautifulSoup
+from datetime import datetime
 from flask import Flask, request
+from bs4 import BeautifulSoup
 
 # =========================================================
-# إعدادات
+# إعدادات البوت
 # =========================================================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
-
-# كود الدخول الموحد
 ACCESS_CODE = "1230"
 
 app = Flask(__name__)
 
-TELEGRAM_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 # المستخدمون الذين أدخلوا الكود
 authorized_users = set()
 
 
 # =========================================================
-# Telegram
+# إرسال رسالة
 # =========================================================
 
 def send_message(chat_id, text):
-    if not BOT_TOKEN:
-        print("❌ BOT_TOKEN غير موجود")
-        return
-
     try:
         requests.post(
-            f"{TELEGRAM_URL}/sendMessage",
+            f"{TELEGRAM_API}/sendMessage",
             json={
                 "chat_id": chat_id,
                 "text": text,
@@ -44,12 +39,16 @@ def send_message(chat_id, text):
         print("Telegram error:", e)
 
 
-def send_keyboard(chat_id):
+# =========================================================
+# القائمة الرئيسية
+# =========================================================
+
+def show_menu(chat_id):
+
     keyboard = {
         "keyboard": [
-            ["🇩🇿 الدوري الجزائري"],
-            ["📅 مباريات اليوم", "🏆 الفرق"],
-            ["📊 تحليل مباراة"],
+            ["📅 مباريات اليوم وتحليلها"],
+            ["🏆 الفرق"],
             ["ℹ️ معلومات البوت"]
         ],
         "resize_keyboard": True
@@ -57,10 +56,10 @@ def send_keyboard(chat_id):
 
     try:
         requests.post(
-            f"{TELEGRAM_URL}/sendMessage",
+            f"{TELEGRAM_API}/sendMessage",
             json={
                 "chat_id": chat_id,
-                "text": "اختر الخدمة التي تريدها 👇",
+                "text": "🇩🇿⚽ اختر الخدمة:",
                 "reply_markup": keyboard
             },
             timeout=20
@@ -70,41 +69,193 @@ def send_keyboard(chat_id):
 
 
 # =========================================================
-# جلب الدوري الجزائري Ligue 1
+# المصدر
 # =========================================================
 
-LIGUE1_URL = "https://www.footmercato.net/algerie/ligue-1/calendrier/"
+SOURCE_URL = "https://www.footmercato.net/algerie/ligue-1/calendrier/"
 
 
-def get_ligue1_matches():
+# =========================================================
+# جلب صفحة المباريات
+# =========================================================
+
+def get_page():
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 "
+            "(KHTML, like Gecko) "
+            "Chrome/120.0 Safari/537.36"
+        ),
+        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8"
+    }
+
+    response = requests.get(
+        SOURCE_URL,
+        headers=headers,
+        timeout=30
+    )
+
+    response.raise_for_status()
+
+    return response.text
+
+
+# =========================================================
+# تحويل أسماء الأيام الفرنسية
+# =========================================================
+
+DAYS_FR = {
+    0: "lundi",
+    1: "mardi",
+    2: "mercredi",
+    3: "jeudi",
+    4: "vendredi",
+    5: "samedi",
+    6: "dimanche"
+}
+
+
+MONTHS_FR = {
+    1: "janvier",
+    2: "février",
+    3: "mars",
+    4: "avril",
+    5: "mai",
+    6: "juin",
+    7: "juillet",
+    8: "août",
+    9: "septembre",
+    10: "octobre",
+    11: "novembre",
+    12: "décembre"
+}
+
+
+# =========================================================
+# استخراج مباريات اليوم
+# =========================================================
+
+def get_today_matches():
+
     try:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 Chrome/120 Safari/537.36"
-            )
-        }
 
-        response = requests.get(
-            LIGUE1_URL,
-            headers=headers,
-            timeout=30
+        html = get_page()
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        text = soup.get_text("\n", strip=True)
+
+        lines = [
+            line.strip()
+            for line in text.split("\n")
+            if line.strip()
+        ]
+
+        now = datetime.now()
+
+        today_day = now.day
+        today_month = MONTHS_FR[now.month]
+        today_year = now.year
+
+        today_date_text = (
+            f"{DAYS_FR[now.weekday()]} "
+            f"{today_day} "
+            f"{today_month} "
+            f"{today_year}"
         )
 
-        if response.status_code != 200:
-            print("❌ FootMercato:", response.status_code)
-            return []
-
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        # نحصل على النص الظاهر
-        text = soup.get_text("\n", strip=True)
+        print("📅 تاريخ اليوم:", today_date_text)
 
         matches = []
 
-        # أسماء أندية الدوري الجزائري
-        teams = [
-            "ES Sétif",
+        # -------------------------------------------------
+        # نبحث عن عنوان تاريخ اليوم
+        # -------------------------------------------------
+
+        date_index = -1
+
+        for i, line in enumerate(lines):
+
+            normalized = line.lower()
+
+            if (
+                str(today_day) in normalized
+                and today_month.lower() in normalized
+                and str(today_year) in normalized
+                and (
+                    DAYS_FR[now.weekday()] in normalized
+                )
+            ):
+                date_index = i
+                break
+
+        # -------------------------------------------------
+        # إذا لم نجد التاريخ بالطريقة الأولى
+        # -------------------------------------------------
+
+        if date_index == -1:
+
+            possible_dates = []
+
+            for i, line in enumerate(lines):
+
+                if (
+                    str(today_day) in line
+                    and today_month.lower() in line.lower()
+                    and str(today_year) in line
+                ):
+                    possible_dates.append(i)
+
+            if possible_dates:
+                date_index = possible_dates[0]
+
+        # -------------------------------------------------
+        # إذا لم نجد تاريخ اليوم
+        # -------------------------------------------------
+
+        if date_index == -1:
+
+            print("⚠️ لم يتم العثور على تاريخ اليوم")
+
+            return []
+
+        # -------------------------------------------------
+        # أسماء أيام الأسبوع
+        # -------------------------------------------------
+
+        day_names = set(DAYS_FR.values())
+
+        # -------------------------------------------------
+        # نقرأ الأسطر التي بعد تاريخ اليوم
+        # حتى تاريخ المباراة التالي
+        # -------------------------------------------------
+
+        block = []
+
+        for line in lines[date_index + 1:]:
+
+            lower = line.lower()
+
+            # توقف عند تاريخ آخر
+            if any(
+                day in lower
+                and str(today_year) in lower
+                for day in day_names
+            ):
+                break
+
+            block.append(line)
+
+        print("📄 عدد الأسطر:", len(block))
+
+        # -------------------------------------------------
+        # أسماء الفرق المعروفة في Ligue 1
+        # -------------------------------------------------
+
+        team_keywords = [
+            "Sétif",
             "Ben Aknoun",
             "Biar",
             "Akbou",
@@ -113,156 +264,356 @@ def get_ligue1_matches():
             "Kabylie",
             "Rouisset",
             "Témouchent",
-            "CS Constantine",
-            "ASO Chlef",
+            "Constantine",
+            "Chlef",
             "Belouizdad",
-            "US Biskra",
+            "Biskra",
             "Saoura",
             "MC Alger",
             "MC Oran",
-            "JS Kabylie",
-            "Paradou",
-            "MCA",
-            "USMA",
-            "CR Belouizdad",
-            "Chlef"
+            "Tlemcen",
+            "Paradou"
         ]
 
-        lines = [x.strip() for x in text.split("\n") if x.strip()]
+        # -------------------------------------------------
+        # البحث عن سطر المباراة
+        # -------------------------------------------------
 
-        # نحاول استخراج الأسطر التي تحتوي على فريقين
-        for i, line in enumerate(lines):
-            found = []
+        i = 0
 
-            for team in teams:
-                if team.lower() in line.lower():
-                    found.append(team)
+        while i < len(block):
 
-            if len(found) >= 2:
-                matches.append(line)
+            line = block[i]
 
+            # وقت المباراة
+            time_match = re.search(
+                r"\b([01]?\d|2[0-3]):[0-5]\d\b",
+                line
+            )
+
+            if time_match:
+
+                time = time_match.group(0)
+
+                # الفريق الأول غالبًا السطر السابق
+                team1 = ""
+                team2 = ""
+
+                previous_lines = block[
+                    max(0, i - 4):i
+                ]
+
+                candidates = []
+
+                for x in previous_lines:
+
+                    for team in team_keywords:
+
+                        if team.lower() in x.lower():
+                            candidates.append(x)
+
+                # نحاول استخدام آخر اسمين
+                if len(candidates) >= 2:
+
+                    team1 = candidates[-2]
+                    team2 = candidates[-1]
+
+                # أحيانًا الفريقان يكونان في نفس السطر
+                if not team1 or not team2:
+
+                    if len(line.split()) >= 3:
+
+                        # محاولة تقسيم بسيطة
+                        parts = line.split(time)
+
+                        if len(parts) == 2:
+
+                            left = parts[0].strip()
+                            right = parts[1].strip()
+
+                            if left:
+                                team1 = left
+
+                            if right:
+                                team2 = right
+
+                if team1 and team2:
+
+                    matches.append({
+                        "home": clean_team(team1),
+                        "away": clean_team(team2),
+                        "time": time
+                    })
+
+            i += 1
+
+        # -------------------------------------------------
         # إزالة التكرار
+        # -------------------------------------------------
+
         unique = []
+
         seen = set()
 
-        for m in matches:
-            key = m.lower()
-            if key not in seen:
-                seen.add(key)
-                unique.append(m)
+        for match in matches:
 
-        return unique[:30]
+            key = (
+                match["home"],
+                match["away"],
+                match["time"]
+            )
+
+            if key not in seen:
+
+                seen.add(key)
+
+                unique.append(match)
+
+        return unique
 
     except Exception as e:
-        print("❌ Ligue 1 error:", e)
+
+        print("❌ Match scraping error:", e)
+
         return []
 
 
 # =========================================================
-# Ligue 2
+# تنظيف اسم الفريق
 # =========================================================
 
-LIGUE2_URL = (
-    "https://competition.dz/chrono/"
-    "ligue-2-les-calendriers-des-groupes-centre-est-et-centre-ouest-devoiles.html"
-)
+def clean_team(name):
 
-
-def get_ligue2_schedule():
-    try:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 Chrome/120 Safari/537.36"
-            )
-        }
-
-        response = requests.get(
-            LIGUE2_URL,
-            headers=headers,
-            timeout=30
-        )
-
-        if response.status_code != 200:
-            print("❌ Competition DZ:", response.status_code)
-            return ""
-
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        text = soup.get_text("\n", strip=True)
-
-        # نبحث عن بداية المجموعة
-        start = text.find("Groupe Centre-Est")
-
-        if start == -1:
-            start = text.find("Centre-Est")
-
-        if start == -1:
-            return "لم أستطع قراءة جدول Ligue 2 حاليًا."
-
-        content = text[start:]
-
-        # نأخذ جزءًا معقولًا
-        return content[:7000]
-
-    except Exception as e:
-        print("❌ Ligue 2 error:", e)
-        return ""
-
-
-# =========================================================
-# الدوري الجزائري
-# =========================================================
-
-def show_ligue1(chat_id):
-    matches = get_ligue1_matches()
-
-    if not matches:
-        send_message(
-            chat_id,
-            "⚠️ لم أتمكن من قراءة مباريات الدوري الجزائري حاليًا.\n"
-            "حاول مرة أخرى بعد قليل."
-        )
-        return
-
-    message = "🇩🇿 <b>الدوري الجزائري - Ligue 1</b>\n\n"
-
-    for match in matches[:15]:
-        message += f"⚽ {match}\n"
-
-    message += (
-        "\n\n📌 المصدر: Foot Mercato\n"
-        "ℹ️ البيانات مأخوذة من صفحة عامة على الويب، "
-        "وليست API مدفوعة."
+    name = re.sub(
+        r"\b(terminé|reporté|live)\b",
+        "",
+        name,
+        flags=re.IGNORECASE
     )
 
-    send_message(chat_id, message)
-
-
-# =========================================================
-# مباريات اليوم
-# =========================================================
-
-def show_today(chat_id):
-    matches = get_ligue1_matches()
-
-    if not matches:
-        send_message(
-            chat_id,
-            "⚠️ لا أستطيع الحصول على مباريات اليوم حاليًا."
-        )
-        return
-
-    message = "📅 <b>مباريات الدوري الجزائري</b>\n\n"
-
-    for match in matches[:10]:
-        message += f"⚽ {match}\n"
-
-    message += (
-        "\n\n🔄 يتم جلب البيانات من صفحة ويب عامة."
+    name = re.sub(
+        r"\s+",
+        " ",
+        name
     )
 
-    send_message(chat_id, message)
+    return name.strip()
+
+
+# =========================================================
+# تحويل أسماء الفرق إلى العربية
+# =========================================================
+
+TEAM_AR = {
+
+    "Témouchent": "شباب عين تموشنت",
+    "CS Constantine": "النادي الرياضي القسنطيني",
+    "Constantine": "النادي الرياضي القسنطيني",
+
+    "ASO Chlef": "أولمبي الشلف",
+    "Chlef": "أولمبي الشلف",
+
+    "Belouizdad": "شباب بلوزداد",
+    "CR Belouizdad": "شباب بلوزداد",
+
+    "Khenchela": "اتحاد خنشلة",
+    "USM Alger": "اتحاد العاصمة",
+
+    "Kabylie": "شبيبة القبائل",
+    "Rouisset": "مستقبل الرويسات",
+
+    "ES Sétif": "وفاق سطيف",
+    "Sétif": "وفاق سطيف",
+
+    "Ben Aknoun": "نجم بن عكنون",
+    "Biar": "شبيبة الأبيار",
+
+    "Akbou": "أولمبي أقبو",
+    "Biskra": "اتحاد بسكرة",
+    "Saoura": "شبيبة الساورة",
+
+    "MC Alger": "مولودية الجزائر",
+    "MC Oran": "مولودية وهران"
+}
+
+
+def arabic_team(name):
+
+    for key, value in TEAM_AR.items():
+
+        if key.lower() in name.lower():
+            return value
+
+    return name
+
+
+# =========================================================
+# تحليل المباراة
+# =========================================================
+
+def analyze_match(home, away):
+
+    home_ar = arabic_team(home)
+    away_ar = arabic_team(away)
+
+    # -----------------------------------------------------
+    # تحليل مبدئي
+    # لا ندعي أنها إحصائيات رسمية
+    # -----------------------------------------------------
+
+    strong_teams = [
+        "مولودية الجزائر",
+        "شباب بلوزداد",
+        "اتحاد العاصمة",
+        "شبيبة القبائل"
+    ]
+
+    home_score = 33
+    away_score = 33
+    draw_score = 34
+
+    if home_ar in strong_teams:
+        home_score += 7
+        away_score -= 3
+        draw_score -= 4
+
+    if away_ar in strong_teams:
+        away_score += 7
+        home_score -= 3
+        draw_score -= 4
+
+    # أفضلية الملعب
+    home_score += 5
+    draw_score -= 2
+    away_score -= 3
+
+    # ضبط النسب
+    total = home_score + draw_score + away_score
+
+    home_probability = round(
+        home_score / total * 100
+    )
+
+    draw_probability = round(
+        draw_score / total * 100
+    )
+
+    away_probability = 100 - home_probability - draw_probability
+
+    if home_probability >= away_probability:
+        expected = f"أفضلية {home_ar}"
+    else:
+        expected = f"أفضلية {away_ar}"
+
+    return (
+        f"📊 <b>تحليل المباراة</b>\n\n"
+        f"🏠 <b>{home_ar}</b>\n"
+        f"🆚\n"
+        f"🚩 <b>{away_ar}</b>\n\n"
+
+        f"📈 <b>الاحتمالات التقديرية:</b>\n"
+        f"🏠 فوز {home_ar}: {home_probability}%\n"
+        f"🤝 التعادل: {draw_probability}%\n"
+        f"🚩 فوز {away_ar}: {away_probability}%\n\n"
+
+        f"🎯 <b>الترجيح:</b>\n"
+        f"{expected}\n\n"
+
+        f"⚠️ التحليل تقديري وليس ضمانًا للنتيجة."
+    )
+
+
+# =========================================================
+# عرض مباريات اليوم
+# =========================================================
+
+def show_today_matches(chat_id):
+
+    matches = get_today_matches()
+
+    now = datetime.now()
+
+    date_text = (
+        f"{now.day} "
+        f"{MONTHS_FR[now.month]} "
+        f"{now.year}"
+    )
+
+    if not matches:
+
+        send_message(
+            chat_id,
+            f"📅 <b>مباريات اليوم</b>\n\n"
+            f"📆 {date_text}\n\n"
+            f"⚽ لا توجد مباريات تمكنت من العثور عليها اليوم.\n\n"
+            f"🔄 حاول مرة أخرى بعد قليل."
+        )
+
+        return
+
+    message = (
+        f"🇩🇿 <b>مباريات الدوري الجزائري اليوم</b>\n"
+        f"📆 {date_text}\n\n"
+    )
+
+    for index, match in enumerate(matches, 1):
+
+        home = arabic_team(match["home"])
+        away = arabic_team(match["away"])
+        time = match["time"]
+
+        message += (
+            f"━━━━━━━━━━━━━━\n"
+            f"⚽ <b>المباراة {index}</b>\n\n"
+            f"🏠 {home}\n"
+            f"🆚\n"
+            f"🚩 {away}\n\n"
+            f"🕐 الساعة: <b>{time}</b>\n\n"
+        )
+
+        message += analyze_match(
+            match["home"],
+            match["away"]
+        )
+
+        message += "\n\n"
+
+    message += (
+        "━━━━━━━━━━━━━━\n"
+        "📌 يتم تحديد مباريات اليوم تلقائيًا حسب التاريخ الحالي.\n"
+        "⚠️ التحليل تقديري."
+    )
+
+    # Telegram لديه حد للرسائل
+    if len(message) > 4000:
+
+        parts = []
+
+        current = ""
+
+        for section in message.split(
+            "━━━━━━━━━━━━━━"
+        ):
+
+            if len(current) + len(section) > 3500:
+
+                parts.append(current)
+
+                current = section
+
+            else:
+
+                current += section
+
+        if current:
+            parts.append(current)
+
+        for part in parts:
+            send_message(chat_id, part)
+
+    else:
+
+        send_message(chat_id, message)
 
 
 # =========================================================
@@ -270,53 +621,27 @@ def show_today(chat_id):
 # =========================================================
 
 def show_teams(chat_id):
+
     message = """
 🇩🇿 <b>أندية الدوري الجزائري</b>
 
-🔴 مولودية الجزائر
-🟢 شبيبة القبائل
-🔴 اتحاد العاصمة
-🔴 شباب بلوزداد
-🟢 وفاق سطيف
-🟡 شبيبة الساورة
-🔴 مولودية وهران
-🟢 النادي الرياضي القسنطيني
-🔵 اتحاد بسكرة
-🟢 أولمبي الشلف
-🔴 اتحاد خنشلة
-🟢 أكبو
-🔵 بن عكنون
-🔴 تيموشنت
-🟢 البيار
-🔵 رويسات
+• مولودية الجزائر
+• شباب بلوزداد
+• اتحاد العاصمة
+• شبيبة القبائل
+• وفاق سطيف
+• مولودية وهران
+• شبيبة الساورة
+• النادي الرياضي القسنطيني
+• أولمبي الشلف
+• اتحاد خنشلة
+• اتحاد بسكرة
+• أولمبي أقبو
+• نجم بن عكنون
+• شبيبة الأبيار
+• مستقبل الرويسات
+• شباب عين تموشنت
 
-📌 القائمة قد تتغير حسب الموسم.
-"""
-
-    send_message(chat_id, message)
-
-
-# =========================================================
-# تحليل مباراة
-# =========================================================
-
-def analyze_match(chat_id):
-    message = """
-📊 <b>تحليل مباراة</b>
-
-أرسل لي المباراة بهذا الشكل:
-
-<code>مولودية الجزائر - مولودية وهران</code>
-
-وسأعطيك تحليلًا مبسطًا يشمل:
-
-⚽ الفريق الأقوى
-🏠 أفضلية الأرض
-📈 التوقع التقريبي
-🥅 الأهداف المتوقعة
-📊 احتمال الفوز/التعادل/الخسارة
-
-⚠️ التحليل إحصائي وترفيهي وليس ضمانًا للنتيجة.
 """
 
     send_message(chat_id, message)
@@ -327,53 +652,55 @@ def analyze_match(chat_id):
 # =========================================================
 
 def show_info(chat_id):
+
     message = """
 ℹ️ <b>معلومات البوت</b>
 
-🇩🇿 بوت خاص بالكرة الجزائرية
+🇩🇿 بوت الدوري الجزائري
 
-يدعم:
-• الدوري الجزائري Ligue 1
-• Ligue 2
-• المباريات
-• الفرق
-• تحليل المباريات
+📅 زر مباريات اليوم:
+يعرض مباريات اليوم تلقائيًا حسب التاريخ.
+
+📊 كل مباراة تحصل على تحليل تقديري.
 
 🔐 كود الدخول:
 1230
 
 🌐 لا يحتاج إلى Football API Key.
 
-📌 يتم جلب بعض البيانات من صفحات ويب عامة.
+⚠️ التحليلات تقديرية وليست ضمانًا للنتائج.
 """
 
     send_message(chat_id, message)
 
 
 # =========================================================
-# استقبال رسائل Telegram
+# Webhook
 # =========================================================
 
 @app.route("/telegram/webhook", methods=["POST"])
 def telegram_webhook():
 
     try:
+
         data = request.get_json(force=True)
 
         message = data.get("message", {})
 
         chat = message.get("chat", {})
+
         chat_id = chat.get("id")
+
+        text = message.get("text", "")
 
         if not chat_id:
             return "OK", 200
 
-        text = message.get("text", "")
         text = text.strip()
 
-        # ---------------------------------------------
-        # إدخال كود الدخول
-        # ---------------------------------------------
+        # -------------------------------------------------
+        # التحقق من الكود
+        # -------------------------------------------------
 
         if chat_id not in authorized_users:
 
@@ -383,96 +710,60 @@ def telegram_webhook():
 
                 send_message(
                     chat_id,
-                    "✅ <b>تم قبول الكود!</b>\n\n"
-                    "مرحبًا بك في بوت الكرة الجزائرية 🇩🇿⚽"
+                    "✅ <b>تم الدخول بنجاح</b>\n\n"
+                    "🇩🇿 مرحبًا بك في بوت الدوري الجزائري ⚽"
                 )
 
-                send_keyboard(chat_id)
+                show_menu(chat_id)
 
             else:
 
                 send_message(
                     chat_id,
-                    "🔐 <b>البوت مغلق.</b>\n\n"
-                    "أرسل كود الدخول للمتابعة."
+                    "🔐 <b>أدخل كود الدخول:</b>\n\n"
+                    "أرسل الكود للمتابعة."
                 )
 
             return "OK", 200
 
-        # ---------------------------------------------
-        # الأوامر بعد الدخول
-        # ---------------------------------------------
+        # -------------------------------------------------
+        # /start
+        # -------------------------------------------------
 
         if text == "/start":
 
-            send_message(
-                chat_id,
-                "أهلًا بك 🇩🇿⚽\n"
-                "اختر الخدمة:"
-            )
+            show_menu(chat_id)
 
-            send_keyboard(chat_id)
+        # -------------------------------------------------
+        # مباريات اليوم
+        # -------------------------------------------------
 
-        elif text == "🇩🇿 الدوري الجزائري":
+        elif text == "📅 مباريات اليوم وتحليلها":
 
-            show_ligue1(chat_id)
+            show_today_matches(chat_id)
 
-        elif text == "📅 مباريات اليوم":
-
-            show_today(chat_id)
+        # -------------------------------------------------
+        # الفرق
+        # -------------------------------------------------
 
         elif text == "🏆 الفرق":
 
             show_teams(chat_id)
 
-        elif text == "📊 تحليل مباراة":
-
-            analyze_match(chat_id)
+        # -------------------------------------------------
+        # المعلومات
+        # -------------------------------------------------
 
         elif text == "ℹ️ معلومات البوت":
 
             show_info(chat_id)
 
-        elif text == "Ligue 2":
-
-            schedule = get_ligue2_schedule()
-
-            if schedule:
-
-                send_message(
-                    chat_id,
-                    "🇩🇿 <b>Ligue 2 الجزائر</b>\n\n"
-                    + schedule[:5000]
-                )
-
-            else:
-
-                send_message(
-                    chat_id,
-                    "⚠️ تعذر جلب جدول Ligue 2 حاليًا."
-                )
-
         else:
 
-            # إذا أرسل مباراة مباشرة
-            if "-" in text:
-
-                send_message(
-                    chat_id,
-                    "📊 <b>تحليل مبدئي</b>\n\n"
-                    f"⚽ المباراة: <b>{text}</b>\n\n"
-                    "🏠 أفضلية الأرض: غير محسوبة\n"
-                    "📈 القوة: تحتاج بيانات تاريخية\n"
-                    "🥅 الأهداف: تحتاج إحصائيات إضافية\n\n"
-                    "⚠️ هذا تحليل مبدئي وليس توقعًا مضمونًا."
-                )
-
-            else:
-
-                send_message(
-                    chat_id,
-                    "اختر إحدى الأزرار الموجودة في القائمة 👇"
-                )
+            send_message(
+                chat_id,
+                "اختر إحدى الخدمات من القائمة 👇"
+            )
 
         return "OK", 200
 
@@ -484,26 +775,30 @@ def telegram_webhook():
 
 
 # =========================================================
-# Route اختبار
+# الصفحة الرئيسية
 # =========================================================
 
 @app.route("/")
 def home():
-    return "Algerian Football Bot is running 🇩🇿⚽"
+
+    return "Algerian Football Bot 🇩🇿⚽"
 
 
 @app.route("/health")
 def health():
+
     return "OK"
 
 
 # =========================================================
-# تشغيل Flask
+# تشغيل التطبيق
 # =========================================================
 
 if __name__ == "__main__":
 
-    port = int(os.environ.get("PORT", 10000))
+    port = int(
+        os.environ.get("PORT", 10000)
+    )
 
     app.run(
         host="0.0.0.0",

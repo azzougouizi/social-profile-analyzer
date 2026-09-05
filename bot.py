@@ -1,10 +1,6 @@
 import os
-import random
-import sqlite3
-
-from flask import Flask, request
 import requests
-
+from flask import Flask, request
 
 # =========================================================
 # CONFIG
@@ -12,8 +8,8 @@ import requests
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# 🔐 كود الدخول الموحد لجميع التلاميذ
-ACCESS_CODE = "BAC2026"
+# 🔐 كود الدخول الموحد
+ACCESS_CODE = "1230"
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
@@ -21,114 +17,12 @@ app = Flask(__name__)
 
 
 # =========================================================
-# DATABASE
-# =========================================================
-
-DB_NAME = "students.db"
-
-
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS students (
-            chat_id INTEGER PRIMARY KEY,
-            access_granted INTEGER DEFAULT 0,
-            score INTEGER DEFAULT 0,
-            correct INTEGER DEFAULT 0,
-            wrong INTEGER DEFAULT 0
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-init_db()
-
-
-def get_student(chat_id):
-
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "SELECT * FROM students WHERE chat_id = ?",
-        (chat_id,)
-    )
-
-    student = cursor.fetchone()
-
-    conn.close()
-
-    return student
-
-
-def create_student(chat_id):
-
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT OR IGNORE INTO students
-        (chat_id, access_granted, score, correct, wrong)
-        VALUES (?, 0, 0, 0, 0)
-    """, (chat_id,))
-
-    conn.commit()
-    conn.close()
-
-
-def grant_access(chat_id):
-
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        UPDATE students
-        SET access_granted = 1
-        WHERE chat_id = ?
-    """, (chat_id,))
-
-    conn.commit()
-    conn.close()
-
-
-def update_score(chat_id, correct):
-
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    if correct:
-
-        cursor.execute("""
-            UPDATE students
-            SET score = score + 10,
-                correct = correct + 1
-            WHERE chat_id = ?
-        """, (chat_id,))
-
-    else:
-
-        cursor.execute("""
-            UPDATE students
-            SET wrong = wrong + 1
-            WHERE chat_id = ?
-        """, (chat_id,))
-
-    conn.commit()
-    conn.close()
-
-
-# =========================================================
-# TELEGRAM
+# TELEGRAM FUNCTIONS
 # =========================================================
 
 def telegram_request(method, data):
 
     try:
-
         response = requests.post(
             f"{TELEGRAM_API}/{method}",
             json=data,
@@ -138,13 +32,12 @@ def telegram_request(method, data):
         result = response.json()
 
         if not result.get("ok"):
-            print("Telegram Error:", result)
+            print("❌ Telegram Error:", result)
 
         return result
 
     except Exception as e:
-
-        print("Telegram Exception:", e)
+        print("❌ Telegram Exception:", e)
         return None
 
 
@@ -158,10 +51,7 @@ def send_message(chat_id, text, keyboard=None):
     if keyboard:
         data["reply_markup"] = keyboard
 
-    return telegram_request(
-        "sendMessage",
-        data
-    )
+    return telegram_request("sendMessage", data)
 
 
 def answer_callback(callback_id):
@@ -175,361 +65,225 @@ def answer_callback(callback_id):
 
 
 # =========================================================
-# KEYBOARD
+# USERS
+# =========================================================
+
+authorized_users = set()
+
+
+# =========================================================
+# MAIN KEYBOARD
 # =========================================================
 
 def main_keyboard():
 
     return {
         "keyboard": [
-
-            ["🎲 سؤال عشوائي"],
-
-            ["📅 أسئلة التواريخ"],
-
-            ["🇩🇿 تاريخ الجزائر"],
-
-            ["🌍 التاريخ العالمي"],
-
-            ["📝 اختبار 10 أسئلة"],
-
-            ["📊 نتائجي"]
-
+            ["🇩🇿 الدوري الجزائري"],
+            ["📅 المباريات"],
+            ["🏆 الفرق"],
+            ["📊 تحليل مباراة"],
+            ["ℹ️ معلومات البوت"]
         ],
-
         "resize_keyboard": True
     }
 
 
 # =========================================================
-# QUESTIONS DATABASE
-# يمكنك إضافة مئات الأسئلة هنا
+# OPENFOOTBALL
 # =========================================================
 
-QUESTIONS = [
-
-    {
-        "category": "dates",
-
-        "question":
-        "في أي سنة اندلعت الثورة التحريرية الجزائرية؟",
-
-        "options": [
-            "1954",
-            "1962",
-            "1945",
-            "1830"
-        ],
-
-        "correct": 0
-    },
-
-    {
-        "category": "dates",
-
-        "question":
-        "في أي سنة استقلت الجزائر؟",
-
-        "options": [
-            "1954",
-            "1962",
-            "1965",
-            "1945"
-        ],
-
-        "correct": 1
-    },
-
-    {
-        "category": "algeria",
-
-        "question":
-        "من هو قائد المنطقة التاريخية الأولى أثناء الثورة التحريرية؟",
-
-        "options": [
-            "مصطفى بن بولعيد",
-            "ديدوش مراد",
-            "العربي بن مهيدي",
-            "كريم بلقاسم"
-        ],
-
-        "correct": 0
-    },
-
-    {
-        "category": "algeria",
-
-        "question":
-        "في أي تاريخ اندلعت الثورة التحريرية الجزائرية؟",
-
-        "options": [
-            "1 نوفمبر 1954",
-            "5 جويلية 1962",
-            "8 ماي 1945",
-            "19 مارس 1962"
-        ],
-
-        "correct": 0
-    },
-
-    {
-        "category": "world",
-
-        "question":
-        "ما هي المنظمة الدولية التي تأسست سنة 1945؟",
-
-        "options": [
-            "حلف الناتو",
-            "الأمم المتحدة",
-            "حلف وارسو",
-            "الاتحاد الأوروبي"
-        ],
-
-        "correct": 1
-    },
-
-    {
-        "category": "world",
-
-        "question":
-        "في أي سنة تأسس حلف شمال الأطلسي؟",
-
-        "options": [
-            "1945",
-            "1949",
-            "1955",
-            "1961"
-        ],
-
-        "correct": 1
-    },
-
-    {
-        "category": "world",
-
-        "question":
-        "في أي سنة تأسس حلف وارسو؟",
-
-        "options": [
-            "1949",
-            "1955",
-            "1962",
-            "1945"
-        ],
-
-        "correct": 1
-    },
-
-    {
-        "category": "dates",
-
-        "question":
-        "في أي سنة وقعت أحداث 8 ماي في الجزائر؟",
-
-        "options": [
-            "1939",
-            "1945",
-            "1954",
-            "1962"
-        ],
-
-        "correct": 1
-    },
-
-    {
-        "category": "world",
-
-        "question":
-        "من هو أول رئيس للولايات المتحدة الأمريكية بعد الحرب العالمية الثانية؟",
-
-        "options": [
-            "فرانكلين روزفلت",
-            "هاري ترومان",
-            "جون كينيدي",
-            "ريتشارد نيكسون"
-        ],
-
-        "correct": 1
-    },
-
-    {
-        "category": "algeria",
-
-        "question":
-        "ما هو التنظيم السياسي الذي قاد الثورة التحريرية الجزائرية؟",
-
-        "options": [
-            "حزب الشعب الجزائري",
-            "جبهة التحرير الوطني",
-            "نجم شمال إفريقيا",
-            "جمعية العلماء المسلمين"
-        ],
-
-        "correct": 1
-    },
-
-    {
-        "category": "dates",
-
-        "question":
-        "في أي سنة تم توقيع اتفاقيات إيفيان؟",
-
-        "options": [
-            "1958",
-            "1960",
-            "1962",
-            "1965"
-        ],
-
-        "correct": 2
-    },
-
-    {
-        "category": "algeria",
-
-        "question":
-        "من هو أحد مفجري الثورة التحريرية الجزائرية؟",
-
-        "options": [
-            "مصطفى بن بولعيد",
-            "هواري بومدين",
-            "أحمد بن بلة",
-            "فرحات عباس"
-        ],
-
-        "correct": 0
-    }
-
-]
+GITHUB_API = "https://api.github.com/repos/openfootball/world/contents/africa/algeria"
 
 
-# =========================================================
-# SEND QUESTION
-# =========================================================
+def get_algeria_files():
 
-def send_question(chat_id, category=None):
+    try:
 
-    questions = QUESTIONS
-
-    if category:
-
-        questions = [
-            q for q in QUESTIONS
-            if q["category"] == category
-        ]
-
-    if not questions:
-
-        send_message(
-            chat_id,
-            "❌ لا توجد أسئلة في هذا القسم حاليًا."
+        response = requests.get(
+            GITHUB_API,
+            timeout=20
         )
 
-        return
+        if response.status_code != 200:
 
-    question_id = random.randint(
-        100000,
-        999999
-    )
+            print("❌ GitHub Error:", response.status_code)
 
-    question = random.choice(
-        questions
-    )
+            return []
 
-    text = (
-        "━━━━━━━━━━━━━━━━━━\n"
-        "📚 سؤال تاريخ\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        f"❓ {question['question']}\n\n"
-    )
+        return response.json()
 
-    keyboard = []
+    except Exception as e:
 
-    letters = ["A", "B", "C", "D"]
+        print("❌ Download Error:", e)
 
-    for index, option in enumerate(
-        question["options"]
-    ):
+        return []
 
-        text += (
-            f"{letters[index]}) {option}\n"
+
+def get_file_content(download_url):
+
+    try:
+
+        response = requests.get(
+            download_url,
+            timeout=20
         )
 
-        keyboard.append([
+        if response.status_code == 200:
+            return response.text
 
-            {
-                "text":
-                f"{letters[index]}️⃣ {option}",
+    except Exception as e:
 
-                "callback_data":
-                f"answer:{question_id}:{index}:{question['correct']}"
-            }
+        print("❌ File Error:", e)
 
-        ])
+    return None
 
-    # حفظ السؤال مؤقتًا في الذاكرة
-    ACTIVE_QUESTIONS[question_id] = question
+
+# =========================================================
+# PARSE FOOTBALL.TXT
+# =========================================================
+
+def parse_matches(content):
+
+    matches = []
+
+    if not content:
+        return matches
+
+    lines = content.splitlines()
+
+    for line in lines:
+
+        line = line.strip()
+
+        if not line:
+            continue
+
+        # نبحث عن مباريات تحتوي على v
+        if " v " in line:
+
+            parts = line.split(" v ")
+
+            if len(parts) != 2:
+                continue
+
+            home = parts[0].strip()
+
+            away_part = parts[1].strip()
+
+            # إزالة النتيجة إن وجدت
+            away = away_part
+
+            score = ""
+
+            words = away_part.split()
+
+            for i, word in enumerate(words):
+
+                if "-" in word and any(
+                    char.isdigit()
+                    for char in word
+                ):
+
+                    away = " ".join(words[:i])
+
+                    score = " ".join(words[i:])
+
+                    break
+
+            matches.append({
+                "home": home,
+                "away": away,
+                "score": score
+            })
+
+    return matches
+
+
+# =========================================================
+# GET ALGERIAN DATA
+# =========================================================
+
+def get_algerian_matches():
+
+    files = get_algeria_files()
+
+    all_matches = []
+
+    for file in files:
+
+        name = file.get("name", "")
+
+        # ملفات txt فقط
+        if not name.endswith(".txt"):
+            continue
+
+        download_url = file.get("download_url")
+
+        if not download_url:
+            continue
+
+        print("📥 Loading:", name)
+
+        content = get_file_content(
+            download_url
+        )
+
+        matches = parse_matches(content)
+
+        all_matches.extend(matches)
+
+    return all_matches
+
+
+# =========================================================
+# SHOW MATCHES
+# =========================================================
+
+def show_matches(chat_id):
 
     send_message(
         chat_id,
-        text,
-        {
-            "inline_keyboard": keyboard
-        }
+        "⏳ جاري تحميل بيانات الدوري الجزائري..."
     )
 
+    matches = get_algerian_matches()
 
-# =========================================================
-# ACTIVE QUESTIONS
-# =========================================================
+    if not matches:
 
-ACTIVE_QUESTIONS = {}
-
-
-# =========================================================
-# RESULTS
-# =========================================================
-
-def show_results(chat_id):
-
-    student = get_student(chat_id)
-
-    if not student:
+        send_message(
+            chat_id,
+            "❌ لم يتم العثور على مباريات حاليًا.\n\n"
+            "قد تكون بيانات المصدر غير متوفرة أو تغيرت."
+        )
 
         return
 
-    score = student[2]
-    correct = student[3]
-    wrong = student[4]
+    text = (
+        "🇩🇿⚽ الدوري الجزائري\n"
+        "━━━━━━━━━━━━━━━━\n\n"
+    )
 
-    total = correct + wrong
+    # عرض آخر 20 مباراة فقط
+    for match in matches[-20:]:
 
-    if total > 0:
+        home = match["home"]
+        away = match["away"]
+        score = match["score"]
 
-        percentage = (
-            correct / total * 100
+        text += (
+            f"🏠 {home}\n"
+            f"✈️ {away}\n"
         )
 
-    else:
+        if score:
+            text += f"⚽ {score}\n"
 
-        percentage = 0
+        text += "━━━━━━━━━━━━\n"
 
-    text = f"""
-━━━━━━━━━━━━━━━━━━
-📊 نتائجك
-━━━━━━━━━━━━━━━━━━
-
-⭐ النقاط: {score}
-
-✅ إجابات صحيحة: {correct}
-
-❌ إجابات خاطئة: {wrong}
-
-📈 نسبة النجاح:
-{percentage:.1f}%
-
-━━━━━━━━━━━━━━━━━━
-"""
+    # Telegram limit
+    if len(text) > 4000:
+        text = text[:4000]
 
     send_message(
         chat_id,
@@ -538,137 +292,113 @@ def show_results(chat_id):
 
 
 # =========================================================
-# CALLBACK HANDLER
+# SHOW TEAMS
 # =========================================================
 
-def handle_callback(callback):
+def show_teams(chat_id):
 
-    callback_id = callback.get("id")
+    matches = get_algerian_matches()
 
-    message = callback.get(
-        "message",
-        {}
-    )
+    teams = set()
 
-    chat_id = (
-        message
-        .get("chat", {})
-        .get("id")
-    )
+    for match in matches:
 
-    data = callback.get(
-        "data",
-        ""
-    )
+        teams.add(match["home"])
+        teams.add(match["away"])
 
-    answer_callback(callback_id)
+    if not teams:
 
-    # =====================================================
-    # ANSWER
-    # =====================================================
-
-    if data.startswith("answer:"):
-
-        parts = data.split(":")
-
-        question_id = int(parts[1])
-
-        selected = int(parts[2])
-
-        correct_answer = int(parts[3])
-
-        if selected == correct_answer:
-
-            update_score(
-                chat_id,
-                True
-            )
-
-            send_message(
-                chat_id,
-                "✅ إجابة صحيحة! 🎉\n\n"
-                "⭐ ربحت 10 نقاط."
-            )
-
-        else:
-
-            update_score(
-                chat_id,
-                False
-            )
-
-            question = ACTIVE_QUESTIONS.get(
-                question_id
-            )
-
-            correct_text = ""
-
-            if question:
-
-                correct_text = (
-                    question["options"]
-                    [correct_answer]
-                )
-
-            send_message(
-                chat_id,
-                "❌ إجابة خاطئة.\n\n"
-                f"✅ الإجابة الصحيحة هي:\n"
-                f"{correct_text}"
-            )
-
-        # حذف السؤال
-        ACTIVE_QUESTIONS.pop(
-            question_id,
-            None
+        send_message(
+            chat_id,
+            "❌ لم يتم العثور على الفرق."
         )
 
-        return "OK"
+        return
 
-    return "OK"
+    teams = sorted(teams)
+
+    text = (
+        "🇩🇿🏆 فرق الدوري الجزائري\n"
+        "━━━━━━━━━━━━━━━━\n\n"
+    )
+
+    for i, team in enumerate(teams, 1):
+
+        text += f"{i}. ⚽ {team}\n"
+
+    if len(text) > 4000:
+        text = text[:4000]
+
+    send_message(
+        chat_id,
+        text
+    )
+
+
+# =========================================================
+# SIMPLE ANALYSIS
+# =========================================================
+
+def analyze_match(chat_id):
+
+    matches = get_algerian_matches()
+
+    if not matches:
+
+        send_message(
+            chat_id,
+            "❌ لا توجد بيانات كافية للتحليل."
+        )
+
+        return
+
+    text = (
+        "📊⚽ تحليل الدوري الجزائري\n"
+        "━━━━━━━━━━━━━━━━\n\n"
+        "🤖 التحليل يعتمد على النتائج "
+        "المتوفرة في قاعدة البيانات.\n\n"
+        "📈 يمكنك استخدام بيانات المباريات "
+        "لمقارنة الفرق ونتائجها السابقة.\n\n"
+        "⚠️ هذا تحليل معلوماتي فقط "
+        "ولا يضمن نتائج مستقبلية."
+    )
+
+    send_message(
+        chat_id,
+        text
+    )
 
 
 # =========================================================
 # WEBHOOK
 # =========================================================
 
-@app.route(
-    "/telegram/webhook",
-    methods=["POST"]
-)
+@app.route("/telegram/webhook", methods=["POST"])
 def webhook():
 
-    update = (
-        request.get_json(
-            silent=True
-        )
-        or {}
-    )
+    update = request.get_json(
+        silent=True
+    ) or {}
 
-    # =====================================================
+    # -----------------------------------------------------
     # CALLBACK
-    # =====================================================
+    # -----------------------------------------------------
 
-    callback = update.get(
-        "callback_query"
-    )
+    callback = update.get("callback_query")
 
     if callback:
 
-        return handle_callback(
-            callback
-        )
+        answer_callback(callback.get("id"))
 
-    # =====================================================
+        return "OK"
+
+    # -----------------------------------------------------
     # MESSAGE
-    # =====================================================
+    # -----------------------------------------------------
 
-    message = update.get(
-        "message"
-    )
+    message = update.get("message")
 
     if not message:
-
         return "OK"
 
     chat_id = (
@@ -683,25 +413,18 @@ def webhook():
         .strip()
     )
 
-    # إنشاء المستخدم
-    create_student(chat_id)
-
-    student = get_student(chat_id)
-
-    access_granted = student[1]
-
-    # =====================================================
+    # -----------------------------------------------------
     # START
-    # =====================================================
+    # -----------------------------------------------------
 
     if text == "/start":
 
-        if access_granted:
+        if chat_id in authorized_users:
 
             send_message(
                 chat_id,
-                "🇩🇿📚 مرحبًا بك مجددًا!\n\n"
-                "اختر نوع الأسئلة:",
+                "🇩🇿⚽ مرحبًا بك مجددًا!\n\n"
+                "اختر من القائمة:",
                 main_keyboard()
             )
 
@@ -709,29 +432,28 @@ def webhook():
 
             send_message(
                 chat_id,
-                "🇩🇿📚 مرحبًا بك في بوت\n"
-                "تاريخ البكالوريا الجزائرية\n\n"
+                "🇩🇿⚽ مرحبًا بك في بوت "
+                "كرة القدم الجزائرية\n\n"
                 "🔐 أدخل كود الدخول:"
             )
 
         return "OK"
 
-    # =====================================================
-    # ACCESS CODE
-    # =====================================================
+    # -----------------------------------------------------
+    # ACCESS
+    # -----------------------------------------------------
 
-    if not access_granted:
+    if chat_id not in authorized_users:
 
         if text == ACCESS_CODE:
 
-            grant_access(chat_id)
+            authorized_users.add(chat_id)
 
             send_message(
                 chat_id,
                 "✅ تم الدخول بنجاح! 🎉\n\n"
-                "📚 مرحبًا بك في بوت تاريخ "
-                "البكالوريا الجزائرية 🇩🇿\n\n"
-                "اختر القسم:",
+                "🇩🇿⚽ مرحبًا بك في بوت "
+                "الدوري الجزائري.",
                 main_keyboard()
             )
 
@@ -740,93 +462,85 @@ def webhook():
             send_message(
                 chat_id,
                 "❌ كود الدخول غير صحيح.\n\n"
-                "🔐 حاول مرة أخرى:"
+                "🔐 أدخل الكود الصحيح:"
             )
 
         return "OK"
 
-    # =====================================================
-    # RANDOM QUESTION
-    # =====================================================
+    # -----------------------------------------------------
+    # LEAGUE
+    # -----------------------------------------------------
 
-    if text == "🎲 سؤال عشوائي":
+    if text == "🇩🇿 الدوري الجزائري":
 
-        send_question(chat_id)
-
-        return "OK"
-
-    # =====================================================
-    # DATES
-    # =====================================================
-
-    if text == "📅 أسئلة التواريخ":
-
-        send_question(
-            chat_id,
-            "dates"
-        )
+        show_matches(chat_id)
 
         return "OK"
 
-    # =====================================================
-    # ALGERIA
-    # =====================================================
+    # -----------------------------------------------------
+    # MATCHES
+    # -----------------------------------------------------
 
-    if text == "🇩🇿 تاريخ الجزائر":
+    if text == "📅 المباريات":
 
-        send_question(
-            chat_id,
-            "algeria"
-        )
+        show_matches(chat_id)
 
         return "OK"
 
-    # =====================================================
-    # WORLD
-    # =====================================================
+    # -----------------------------------------------------
+    # TEAMS
+    # -----------------------------------------------------
 
-    if text == "🌍 التاريخ العالمي":
-
-        send_question(
-            chat_id,
-            "world"
-        )
-
-        return "OK"
-
-    # =====================================================
-    # EXAM
-    # =====================================================
-
-    if text == "📝 اختبار 10 أسئلة":
+    if text == "🏆 الفرق":
 
         send_message(
             chat_id,
-            "📝 سيتم إرسال أسئلة عشوائية.\n\n"
-            "ابدأ بالسؤال الأول 👇"
+            "⏳ جاري تحميل الفرق..."
         )
 
-        send_question(chat_id)
+        show_teams(chat_id)
 
         return "OK"
 
-    # =====================================================
-    # RESULTS
-    # =====================================================
+    # -----------------------------------------------------
+    # ANALYSIS
+    # -----------------------------------------------------
 
-    if text == "📊 نتائجي":
+    if text == "📊 تحليل مباراة":
 
-        show_results(chat_id)
+        send_message(
+            chat_id,
+            "⏳ جاري تحليل البيانات..."
+        )
+
+        analyze_match(chat_id)
 
         return "OK"
 
-    # =====================================================
+    # -----------------------------------------------------
+    # INFO
+    # -----------------------------------------------------
+
+    if text == "ℹ️ معلومات البوت":
+
+        send_message(
+            chat_id,
+            "🇩🇿⚽ بوت كرة القدم الجزائرية\n\n"
+            "📊 يعرض بيانات متوفرة عن "
+            "الدوري الجزائري.\n\n"
+            "🔐 الدخول محمي بكود.\n\n"
+            "🚫 لا يحتاج API Key."
+        )
+
+        return "OK"
+
+    # -----------------------------------------------------
     # UNKNOWN
-    # =====================================================
+    # -----------------------------------------------------
 
     send_message(
         chat_id,
-        "اختر أحد الأزرار من القائمة 👇",
+        "اختر أحد الأزرار 👇",
         main_keyboard()
     )
 
@@ -837,12 +551,10 @@ def webhook():
 # HOME
 # =========================================================
 
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
 
-    return (
-        "🇩🇿 History BAC Bot is running!"
-    )
+    return "🇩🇿 Algeria Football Bot is running!"
 
 
 # =========================================================
@@ -852,10 +564,7 @@ def home():
 if __name__ == "__main__":
 
     port = int(
-        os.getenv(
-            "PORT",
-            "10000"
-        )
+        os.getenv("PORT", "10000")
     )
 
     app.run(

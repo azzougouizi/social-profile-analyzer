@@ -1,5 +1,5 @@
-Flask==3.1.2
-pyTelegramBotAPI==4.29.1
-requests==2.32.5
-beautifulsoup4==4.13.5
-gunicorn==23.0.0
+Flask
+pyTelegramBotAPI
+requests
+beautifulsoup4
+gunicorn

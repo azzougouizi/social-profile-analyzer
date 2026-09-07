@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -9,19 +10,31 @@ import telebot
 from telebot import types
 
 
-# =========================
-# إعدادات
-# =========================
+# =========================================================
+# SETTINGS
+# =========================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-PORT = int(os.getenv("PORT", "10000"))
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
 
+PORT = int(os.getenv("PORT", "10000"))
 ACCESS_CODE = "1230"
 
 TIMEZONE = ZoneInfo("Africa/Algiers")
 
+PREMIER_LEAGUE_URL = (
+    "https://www.premierleague.com/en/news/"
+    "4675097/all-380-fixtures-for-202627-premier-league-season"
+)
+
+DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
+
+
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN غير موجود")
+
+if not DEEPSEEK_API_KEY:
+    raise RuntimeError("DEEPSEEK_API_KEY غير موجود")
 
 
 bot = telebot.TeleBot(
@@ -43,140 +56,91 @@ session.headers.update({
 })
 
 
-# =========================
-# 365Scores
-# =========================
-
-MATCHES_URL = (
-    "https://www.365scores.com/football/league/"
-    "premier-league-7/matches"
-)
-
-
-# =========================
-# أسماء الفرق
-# =========================
+# =========================================================
+# TEAMS
+# =========================================================
 
 TEAM_AR = {
     "Arsenal": "أرسنال",
-    "Arsenal FC": "أرسنال",
-
     "Aston Villa": "أستون فيلا",
-    "Aston Villa FC": "أستون فيلا",
-
-    "Bournemouth": "بورنموث",
     "AFC Bournemouth": "بورنموث",
-
+    "Bournemouth": "بورنموث",
     "Brentford": "برينتفورد",
-    "Brentford FC": "برينتفورد",
-
-    "Brighton": "برايتون",
     "Brighton & Hove Albion": "برايتون",
-    "Brighton & Hove Albion FC": "برايتون",
-
-    "Burnley": "بيرنلي",
-    "Burnley FC": "بيرنلي",
-
     "Chelsea": "تشيلسي",
-    "Chelsea FC": "تشيلسي",
-
     "Crystal Palace": "كريستال بالاس",
-    "Crystal Palace FC": "كريستال بالاس",
-
+    "Coventry City": "كوفنتري سيتي",
     "Everton": "إيفرتون",
-    "Everton FC": "إيفرتون",
-
     "Fulham": "فولهام",
-    "Fulham FC": "فولهام",
-
+    "Hull City": "هال سيتي",
+    "Ipswich Town": "إيبسويتش تاون",
     "Leeds United": "ليدز يونايتد",
-    "Leeds United FC": "ليدز يونايتد",
-
     "Liverpool": "ليفربول",
-    "Liverpool FC": "ليفربول",
-
     "Manchester City": "مانشستر سيتي",
-    "Manchester City FC": "مانشستر سيتي",
-
     "Manchester United": "مانشستر يونايتد",
-    "Manchester United FC": "مانشستر يونايتد",
-
-    "Newcastle United": "نيوكاسل",
-    "Newcastle United FC": "نيوكاسل",
-
+    "Newcastle United": "نيوكاسل يونايتد",
     "Nottingham Forest": "نوتنغهام فورست",
-    "Nottingham Forest FC": "نوتنغهام فورست",
-
     "Sunderland": "سندرلاند",
-    "Sunderland AFC": "سندرلاند",
-
     "Tottenham Hotspur": "توتنهام",
-    "Tottenham Hotspur FC": "توتنهام",
-
-    "West Ham United": "وست هام",
-    "West Ham United FC": "وست هام",
-
-    "Wolverhampton Wanderers": "وولفرهامبتون",
-    "Wolverhampton Wanderers FC": "وولفرهامبتون",
 }
 
 
-# =========================
-# المستخدمون
-# =========================
+TEAM_NAMES = sorted(
+    TEAM_AR.keys(),
+    key=len,
+    reverse=True
+)
+
+
+# =========================================================
+# USERS
+# =========================================================
 
 authorized_users = set()
 
 
-# =========================
-# أدوات
-# =========================
+# =========================================================
+# HELPERS
+# =========================================================
 
 def clean(text):
-    if not text:
-        return ""
-
     return " ".join(
-        str(text)
-        .replace("\xa0", " ")
-        .split()
+        str(text).replace("\xa0", " ").split()
     )
 
 
 def arabic_team(name):
-    name = clean(name)
-
-    if name in TEAM_AR:
-        return TEAM_AR[name]
-
-    return name
+    return TEAM_AR.get(
+        name.strip(),
+        name.strip()
+    )
 
 
-def known_team(name):
-    name = clean(name).lower()
-
-    for team in TEAM_AR:
-        if team.lower() == name:
-            return True
-
-    return False
-
-
-def today():
+def current_date():
     return datetime.now(TIMEZONE).date()
 
 
-# =========================
-# تحميل الصفحة
-# =========================
+def find_team(text):
+    text_lower = text.lower()
 
-def get_page():
+    for team in TEAM_NAMES:
+        if team.lower() in text_lower:
+            return team
+
+    return None
+
+
+# =========================================================
+# GET PREMIER LEAGUE FIXTURES
+# =========================================================
+
+def get_fixture_page():
 
     try:
 
         response = session.get(
-            MATCHES_URL,
-            timeout=20
+            PREMIER_LEAGUE_URL,
+            timeout=25
         )
 
         response.raise_for_status()
@@ -185,18 +149,14 @@ def get_page():
 
     except Exception as e:
 
-        print("365Scores error:", e)
+        print("Premier League error:", e)
 
         return ""
 
 
-# =========================
-# استخراج مباريات اليوم
-# =========================
-
 def get_today_matches():
 
-    html = get_page()
+    html = get_fixture_page()
 
     if not html:
         return []
@@ -206,7 +166,6 @@ def get_today_matches():
         "html.parser"
     )
 
-    # إزالة الأشياء غير المهمة
     for tag in soup([
         "script",
         "style",
@@ -215,154 +174,281 @@ def get_today_matches():
     ]):
         tag.decompose()
 
-    text = soup.get_text(
-        "\n",
-        strip=True
+    lines = []
+
+    for line in soup.get_text("\n").splitlines():
+
+        line = clean(line)
+
+        if line:
+            lines.append(line)
+
+    today = current_date()
+
+    # مثال:
+    # Friday 21 August 2026
+    # Saturday 22 August
+    date_pattern = re.compile(
+        r"^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)"
+        r"\s+(\d{1,2})\s+"
+        r"(January|February|March|April|May|June|July|August|"
+        r"September|October|November|December)"
+        r"(?:\s+(\d{4}))?$",
+        re.IGNORECASE
     )
 
-    lines = [
-        clean(line)
-        for line in text.splitlines()
-        if clean(line)
-    ]
-
-    matches = []
-
-    today_date = today()
-
-    # تواريخ محتملة في الصفحة
-    today_strings = {
-        today_date.strftime("%d/%m/%Y"),
-        today_date.strftime("%d/%m/%y"),
-        today_date.strftime("%-d/%-m/%Y"),
-        today_date.strftime("%-d/%-m/%y"),
+    months = {
+        "january": 1,
+        "february": 2,
+        "march": 3,
+        "april": 4,
+        "may": 5,
+        "june": 6,
+        "july": 7,
+        "august": 8,
+        "september": 9,
+        "october": 10,
+        "november": 11,
+        "december": 12,
     }
 
-    found_today = False
+    active_date = None
+    matches = []
 
     for line in lines:
 
-        # معرفة بداية مباريات اليوم
-        if any(
-            date_string in line
-            for date_string in today_strings
-        ):
-            found_today = True
-            continue
+        date_match = date_pattern.match(line)
 
-        if not found_today:
-            continue
+        if date_match:
 
-        # إذا وصلنا إلى تاريخ آخر نتوقف
-        if "/" in line:
+            day = int(date_match.group(2))
 
-            possible_date = False
+            month_name = date_match.group(3).lower()
 
-            for part in line.split():
-                if "/" in part:
-                    possible_date = True
-                    break
+            month = months[month_name]
 
-            if possible_date:
-                continue
+            year_text = date_match.group(4)
 
-        # -------------------------
-        # مباراة بوقت
-        # -------------------------
+            if year_text:
 
-        parts = line.split()
+                year = int(year_text)
 
-        for i, part in enumerate(parts):
+            else:
 
-            if ":" not in part:
-                continue
-
-            # نبحث عن وقت مثل 15:00
-            time_part = part
+                # موسم 2026/27
+                year = 2026 if month >= 8 else 2027
 
             try:
 
-                hour, minute = time_part.split(":")
+                active_date = datetime(
+                    year,
+                    month,
+                    day
+                ).date()
 
-                if not (
-                    hour.isdigit()
-                    and minute.isdigit()
-                ):
-                    continue
+            except ValueError:
 
-                if not (
-                    0 <= int(hour) <= 23
-                    and 0 <= int(minute) <= 59
-                ):
-                    continue
+                active_date = None
 
-            except Exception:
+            continue
+
+        if active_date != today:
+            continue
+
+        # =================================================
+        # Match line
+        #
+        # 14:00 Everton v Manchester United (Sky Sports)
+        # Arsenal v Chelsea
+        # =================================================
+
+        if " v " not in line:
+            continue
+
+        time_match = re.match(
+            r"^(\d{1,2}:\d{2})\s+(.+?)\s+v\s+(.+)$",
+            line
+        )
+
+        if time_match:
+
+            kickoff = time_match.group(1)
+
+            home_text = time_match.group(2)
+
+            away_text = time_match.group(3)
+
+        else:
+
+            kickoff = "15:00"
+
+            parts = line.split(" v ", 1)
+
+            if len(parts) != 2:
                 continue
 
-            left = clean(
-                " ".join(parts[:i])
-            )
+            home_text = parts[0]
 
-            right = clean(
-                " ".join(parts[i + 1:])
-            )
+            away_text = parts[1]
 
-            if not left or not right:
-                continue
+        # إزالة القناة
+        away_text = re.sub(
+            r"\s*.*?",
+            "",
+            away_text
+        )
 
-            # محاولة العثور على فريق معروف
-            home = None
-            away = None
+        home = find_team(home_text)
+        away = find_team(away_text)
 
-            for team in TEAM_AR:
+        if not home or not away:
+            continue
 
-                if team.lower() in left.lower():
-                    home = team
+        match = {
+            "home": home,
+            "away": away,
+            "time": kickoff
+        }
 
-                if team.lower() in right.lower():
-                    away = team
+        duplicate = any(
+            m["home"] == match["home"]
+            and m["away"] == match["away"]
+            for m in matches
+        )
 
-            if home and away:
-
-                item = {
-                    "home": home,
-                    "away": away,
-                    "time": time_part
-                }
-
-                duplicate = any(
-                    m["home"] == home
-                    and m["away"] == away
-                    and m["time"] == time_part
-                    for m in matches
-                )
-
-                if not duplicate:
-                    matches.append(item)
-
-                break
+        if not duplicate:
+            matches.append(match)
 
     return matches
 
 
-# =========================
-# لوحة التحكم
-# =========================
+# =========================================================
+# DEEPSEEK ANALYSIS
+# =========================================================
 
-keyboard = types.ReplyKeyboardMarkup(
+def analyze_match(home, away):
+
+    home_ar = arabic_team(home)
+    away_ar = arabic_team(away)
+
+    prompt = f"""
+أنت محلل كرة قدم محترف.
+
+حلل مباراة في الدوري الإنجليزي الممتاز:
+
+{home_ar} ضد {away_ar}
+
+أريد تحليلاً مختصرًا وواضحًا باللغة العربية.
+
+أعطني:
+
+1. الفريق الأقرب للفوز
+2. النتيجة المتوقعة
+3. احتمال فوز صاحب الأرض بالنسبة المئوية
+4. احتمال التعادل بالنسبة المئوية
+5. احتمال فوز الضيف بالنسبة المئوية
+6. Over 1.5
+7. Over 2.5
+8. Over 3.5
+9. BTTS
+10. شرح مختصر جدًا للتحليل
+
+مهم جدًا:
+- لا تدّعي امتلاك بيانات مباشرة أو نتائج حية إذا لم تكن متاحة.
+- لا تخترع إصابات أو إيقافات أو أرقامًا حديثة.
+- اعتبر التوقع احتماليًا وليس ضمانًا.
+- اجعل الإجابة سهلة للعرض داخل Telegram.
+"""
+
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": "deepseek-v4-flash",
+
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "أنت محلل كرة قدم. "
+                    "أجب باللغة العربية وبشكل مختصر."
+                )
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+
+        "temperature": 0.3,
+
+        "max_tokens": 700
+    }
+
+    try:
+
+        response = requests.post(
+            DEEPSEEK_URL,
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        return data["choices"][0]["message"]["content"]
+
+    except Exception as e:
+
+        print("DeepSeek error:", e)
+
+        return (
+            "❌ تعذر الحصول على تحليل DeepSeek حاليًا.\n"
+            "حاول مرة أخرى بعد قليل."
+        )
+
+
+# =========================================================
+# KEYBOARDS
+# =========================================================
+
+main_keyboard = types.ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-keyboard.add(
+main_keyboard.add(
     types.KeyboardButton(
         "🏴 مباريات اليوم"
     )
 )
 
 
-# =========================
+def matches_keyboard(matches):
+
+    keyboard = types.InlineKeyboardMarkup()
+
+    for index, match in enumerate(matches):
+
+        home = arabic_team(match["home"])
+        away = arabic_team(match["away"])
+
+        keyboard.add(
+            types.InlineKeyboardButton(
+                text=f"🤖 {home} × {away}",
+                callback_data=f"analyze_{index}"
+            )
+        )
+
+    return keyboard
+
+
+# =========================================================
 # START
-# =========================
+# =========================================================
 
 @bot.message_handler(
     commands=["start"]
@@ -377,18 +463,18 @@ def start(message):
         message.chat.id,
 
         "👋 <b>مرحبًا بك</b>\n\n"
-        "🏴 <b>Premier League Bot</b>\n\n"
-        "📅 يعرض مباريات الدوري الإنجليزي "
-        "المقررة اليوم.\n\n"
+        "🏴 <b>Premier League AI Bot</b>\n\n"
+        "يعرض مباريات الدوري الإنجليزي اليوم "
+        "ويمكنك طلب تحليل المباراة بواسطة DeepSeek.\n\n"
         "🔐 أدخل رمز الدخول:",
 
         parse_mode="HTML"
     )
 
 
-# =========================
-# كود الدخول
-# =========================
+# =========================================================
+# LOGIN
+# =========================================================
 
 @bot.message_handler(
     func=lambda message:
@@ -406,23 +492,22 @@ def login(message):
         message.chat.id,
 
         "✅ <b>تم الدخول بنجاح</b>\n\n"
-        "اضغط على الزر لعرض مباريات اليوم:",
+        "اختر مباريات اليوم:",
 
-        reply_markup=keyboard,
-        parse_mode="HTML"
+        reply_markup=main_keyboard
     )
 
 
-# =========================
-# مباريات اليوم
-# =========================
+# =========================================================
+# TODAY'S MATCHES
+# =========================================================
 
 @bot.message_handler(
     func=lambda message:
     message.chat.id in authorized_users
     and message.text == "🏴 مباريات اليوم"
 )
-def matches_today(message):
+def today_matches(message):
 
     bot.send_message(
         message.chat.id,
@@ -436,18 +521,17 @@ def matches_today(message):
         bot.send_message(
             message.chat.id,
 
-            "📅 <b>مباريات الدوري الإنجليزي اليوم</b>\n\n"
-            "لا توجد مباريات اليوم "
-            "أو تعذر قراءة بيانات 365Scores حاليًا.",
+            "📅 <b>مباريات اليوم</b>\n\n"
+            "لا توجد مباريات في الدوري الإنجليزي اليوم "
+            "أو تعذر قراءة جدول Premier League حاليًا.",
 
-            reply_markup=keyboard,
-            parse_mode="HTML"
+            reply_markup=main_keyboard
         )
 
         return
 
     text = (
-        "🏴 <b>الدوري الإنجليزي</b>\n"
+        "🏴 <b>الدوري الإنجليزي الممتاز</b>\n"
         "📅 <b>مباريات اليوم</b>\n\n"
     )
 
@@ -462,32 +546,112 @@ def matches_today(message):
         )
 
         text += (
-            f"⚽ <b>{home}</b>\n"
-            f"🕐 {match['time']}\n"
-            f"🆚 <b>{away}</b>\n\n"
+            f"⚽ <b>{home}</b> × <b>{away}</b>\n"
+            f"🕐 {match['time']} الجزائر\n\n"
         )
+
+    text += (
+        "👇 اختر مباراة للحصول على تحليل DeepSeek:"
+    )
 
     bot.send_message(
         message.chat.id,
         text,
-        reply_markup=keyboard,
-        parse_mode="HTML"
+        reply_markup=matches_keyboard(matches)
     )
 
 
-# =========================
-# الصفحة الرئيسية
-# =========================
+# =========================================================
+# ANALYZE BUTTON
+# =========================================================
+
+@bot.callback_query_handler(
+    func=lambda call:
+    call.data.startswith("analyze_")
+)
+def analyze_button(call):
+
+    try:
+
+        index = int(
+            call.data.replace(
+                "analyze_",
+                ""
+            )
+        )
+
+    except ValueError:
+
+        bot.answer_callback_query(
+            call.id,
+            "خطأ"
+        )
+
+        return
+
+    matches = get_today_matches()
+
+    if index >= len(matches):
+
+        bot.answer_callback_query(
+            call.id,
+            "المباراة غير متاحة"
+        )
+
+        return
+
+    match = matches[index]
+
+    home = arabic_team(
+        match["home"]
+    )
+
+    away = arabic_team(
+        match["away"]
+    )
+
+    bot.answer_callback_query(
+        call.id,
+        "جاري التحليل..."
+    )
+
+    bot.send_message(
+        call.message.chat.id,
+
+        f"🤖 <b>DeepSeek AI</b>\n\n"
+        f"⚽ <b>{home} × {away}</b>\n\n"
+        f"⏳ جاري تحليل المباراة..."
+    )
+
+    analysis = analyze_match(
+        match["home"],
+        match["away"]
+    )
+
+    result = (
+        f"🤖 <b>تحليل DeepSeek</b>\n\n"
+        f"⚽ <b>{home} × {away}</b>\n"
+        f"🕐 {match['time']} الجزائر\n\n"
+        f"{analysis}\n\n"
+        f"⚠️ التوقعات احتمالية وليست ضمانًا."
+    )
+
+    bot.send_message(
+        call.message.chat.id,
+        result,
+        reply_markup=main_keyboard
+    )
+
+
+# =========================================================
+# FLASK
+# =========================================================
 
 @app.route("/")
 def home():
 
-    return "Premier League Bot is running", 200
+    return "Premier League AI Bot is running", 200
 
-
-# =========================
-# Health
-# =========================
 
 @app.route("/health")
 def health():
@@ -495,9 +659,9 @@ def health():
     return "OK", 200
 
 
-# =========================
-# Telegram Webhook
-# =========================
+# =========================================================
+# TELEGRAM WEBHOOK
+# =========================================================
 
 @app.route(
     "/telegram/webhook",
@@ -534,9 +698,9 @@ def telegram_webhook():
         return "ERROR", 500
 
 
-# =========================
-# تشغيل
-# =========================
+# =========================================================
+# RUN
+# =========================================================
 
 if __name__ == "__main__":
 

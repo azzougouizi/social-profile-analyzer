@@ -1,15 +1,18 @@
 import os
 import re
-import math
 import requests
 
 from bs4 import BeautifulSoup
+from flask import Flask, request
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from flask import Flask, request
 
 
 app = Flask(__name__)
+
+# =========================
+# إعدادات البوت
+# =========================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ACCESS_CODE = "1230"
@@ -17,18 +20,16 @@ ACCESS_CODE = "1230"
 TELEGRAM = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 
-# ==================================================
-# المواقع
-# ==================================================
+# =========================
+# مواقع المعلومات
+# =========================
 
 FIXTURES_URL = (
     "https://www.premierleague.com/en/news/"
     "4675097/all-380-fixtures-for-202627-premier-league-season"
 )
 
-STATS_URL = (
-    "https://www.premierleague.com/en/stats"
-)
+STATS_URL = "https://www.premierleague.com/en/stats"
 
 
 HEADERS = {
@@ -36,67 +37,40 @@ HEADERS = {
 }
 
 
-# ==================================================
-# أسماء الفرق بالعربية
-# ==================================================
+# =========================
+# أسماء الفرق
+# =========================
 
 TEAMS = {
     "Arsenal": "أرسنال",
+    "AFC Bournemouth": "بورنموث",
+    "Aston Villa": "أستون فيلا",
+    "Brentford": "برينتفورد",
+    "Brighton & Hove Albion": "برايتون",
+    "Burnley": "بيرنلي",
     "Chelsea": "تشيلسي",
+    "Crystal Palace": "كريستال بالاس",
+    "Coventry City": "كوفنتري سيتي",
+    "Everton": "إيفرتون",
+    "Fulham": "فولهام",
+    "Hull City": "هال سيتي",
+    "Ipswich Town": "إيبسويتش",
+    "Leeds United": "ليدز",
     "Liverpool": "ليفربول",
     "Manchester City": "مانشستر سيتي",
     "Manchester United": "مانشستر يونايتد",
-    "Tottenham Hotspur": "توتنهام",
     "Newcastle United": "نيوكاسل",
-    "Aston Villa": "أستون فيلا",
-    "Brighton & Hove Albion": "برايتون",
-    "Crystal Palace": "كريستال بالاس",
-    "Brentford": "برينتفورد",
-    "Everton": "إيفرتون",
-    "Fulham": "فولهام",
     "Nottingham Forest": "نوتنغهام فورست",
-    "AFC Bournemouth": "بورنموث",
-    "Leeds United": "ليدز",
     "Sunderland": "سندرلاند",
-    "Coventry City": "كوفنتري",
-    "Hull City": "هال سيتي",
-    "Ipswich Town": "إيبسويتش",
+    "Tottenham Hotspur": "توتنهام",
 }
 
 
-# ==================================================
-# قوة الفرق - تستخدم فقط للتخمين
-# ==================================================
-
-STRENGTH = {
-    "Arsenal": 88,
-    "Liverpool": 87,
-    "Manchester City": 87,
-    "Chelsea": 82,
-    "Manchester United": 81,
-    "Newcastle United": 80,
-    "Tottenham Hotspur": 79,
-    "Aston Villa": 79,
-    "Brighton & Hove Albion": 76,
-    "Crystal Palace": 75,
-    "Brentford": 74,
-    "Everton": 73,
-    "Fulham": 73,
-    "Nottingham Forest": 72,
-    "AFC Bournemouth": 72,
-    "Leeds United": 70,
-    "Sunderland": 68,
-    "Coventry City": 67,
-    "Hull City": 66,
-    "Ipswich Town": 66,
-}
-
-
-# ==================================================
+# =========================
 # Telegram
-# ==================================================
+# =========================
 
-def send(chat_id, text):
+def send_message(chat_id, text):
 
     requests.post(
         f"{TELEGRAM}/sendMessage",
@@ -108,14 +82,40 @@ def send(chat_id, text):
     )
 
 
-# ==================================================
-# جلب صفحة المباريات
-# ==================================================
+# =========================
+# القائمة الرئيسية
+# =========================
 
-def get_fixtures_page():
+def main_menu(chat_id):
+
+    keyboard = {
+        "keyboard": [
+            ["⚽ مباريات اليوم"],
+            ["🥇 ترتيب الهدافين"],
+            ["🏆 أفضل لاعب"]
+        ],
+        "resize_keyboard": True
+    }
+
+    requests.post(
+        f"{TELEGRAM}/sendMessage",
+        json={
+            "chat_id": chat_id,
+            "text": "اختر الخدمة:",
+            "reply_markup": keyboard
+        },
+        timeout=15
+    )
+
+
+# =========================
+# جلب صفحة
+# =========================
+
+def get_page(url):
 
     r = requests.get(
-        FIXTURES_URL,
+        url,
         headers=HEADERS,
         timeout=20
     )
@@ -128,23 +128,22 @@ def get_fixtures_page():
     ).get_text(" ", strip=True)
 
 
-# ==================================================
+# =========================
 # مباريات اليوم
-# ==================================================
+# =========================
 
-def today_matches():
+def get_today_matches():
 
-    text = get_fixtures_page()
+    text = get_page(FIXTURES_URL)
 
-    today = datetime.now(
+    now = datetime.now(
         ZoneInfo("Europe/London")
     )
 
-    date_text = today.strftime(
-        "%d %B %Y"
+    date_text = now.strftime(
+        "%-d %B %Y"
     )
 
-    # البحث عن قسم تاريخ اليوم
     position = text.find(date_text)
 
     if position == -1:
@@ -152,26 +151,13 @@ def today_matches():
 
     section = text[position:]
 
-    # نوقف عند التاريخ التالي
-    dates = re.search(
-        r"\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|"
-        r"Saturday|Sunday)\s+\d{1,2}\s+"
-        r"(?:January|February|March|April|May|June|July|"
-        r"August|September|October|November|December)"
-        r"(?:\s+\d{4})?",
-        section[20:]
-    )
-
-    if dates:
-        section = section[:dates.start() + 20]
+    teams = list(TEAMS.keys())
 
     matches = []
 
-    team_names = list(TEAMS.keys())
+    for home in teams:
 
-    for home in team_names:
-
-        for away in team_names:
+        for away in teams:
 
             if home == away:
                 continue
@@ -184,276 +170,131 @@ def today_matches():
 
             if re.search(pattern, section):
 
-                matches.append({
+                match = {
                     "home": home,
                     "away": away
-                })
+                }
 
-    # إزالة التكرار
-    unique = []
+                if match not in matches:
+                    matches.append(match)
 
-    for m in matches:
-
-        if m not in unique:
-            unique.append(m)
-
-    return unique
+    return matches
 
 
-# ==================================================
-# Poisson
-# ==================================================
+# =========================
+# عرض مباريات اليوم
+# =========================
 
-def poisson(k, value):
-
-    return (
-        math.exp(-value)
-        * value ** k
-        / math.factorial(k)
-    )
-
-
-def prediction(home, away):
-
-    h = STRENGTH.get(home, 70)
-    a = STRENGTH.get(away, 70)
-
-    difference = h - a
-
-    home_goals = 1.45 + difference * 0.025
-    away_goals = 1.10 - difference * 0.018
-
-    home_goals = max(
-        0.2,
-        min(home_goals, 3.5)
-    )
-
-    away_goals = max(
-        0.2,
-        min(away_goals, 3.0)
-    )
-
-    home_win = 0
-    draw = 0
-    away_win = 0
-
-    best_score = (0, 0, 0)
-
-    for x in range(7):
-
-        for y in range(7):
-
-            p = (
-                poisson(x, home_goals)
-                * poisson(y, away_goals)
-            )
-
-            if p > best_score[2]:
-                best_score = (x, y, p)
-
-            if x > y:
-                home_win += p
-
-            elif x == y:
-                draw += p
-
-            else:
-                away_win += p
-
-    if home_win >= away_win and home_win >= draw:
-        winner = home
-
-    elif away_win >= home_win and away_win >= draw:
-        winner = away
-
-    else:
-        winner = "تعادل"
-
-    return (
-        winner,
-        best_score[0],
-        best_score[1],
-        home_goals + away_goals
-    )
-
-
-# ==================================================
-# جلب أفضل اللاعبين
-#
-# ملاحظة:
-# الموقع هو المصدر.
-# البوت يحسب النسبة بنفسه.
-# ==================================================
-
-def get_players():
+def show_matches():
 
     try:
-
-        r = requests.get(
-            STATS_URL,
-            headers=HEADERS,
-            timeout=20
-        )
-
-        soup = BeautifulSoup(
-            r.text,
-            "html.parser"
-        )
-
-        text = soup.get_text(
-            " ",
-            strip=True
-        )
-
-        return text
-
-    except:
-
-        return ""
-
-
-def best_three_players(home, away):
-
-    # نحاول الحصول على بيانات الموقع
-    stats = get_players()
-
-    candidates = []
-
-    # البحث عن أسماء الفرق واللاعبين
-    #
-    # إذا لم يوفر الموقع بيانات كافية في HTML
-    # فلن نخترع لاعبين.
-
-    for team in [home, away]:
-
-        team_ar = TEAMS.get(
-            team,
-            team
-        )
-
-        # أسماء الفريق موجودة؟
-        if team in stats or team_ar in stats:
-
-            # لا نضع أسماء عشوائية.
-            # سيتم الاعتماد على البيانات المستخرجة.
-            pass
-
-    return candidates
-
-
-# ==================================================
-# إنشاء رسالة المباراة
-# ==================================================
-
-def format_match(match):
-
-    home = match["home"]
-    away = match["away"]
-
-    winner, h_score, a_score, total = prediction(
-        home,
-        away
-    )
-
-    text = ""
-
-    text += "⚽ مباراة اليوم\n\n"
-
-    text += (
-        f"🇬🇧 {TEAMS.get(home, home)} "
-        f"🆚 "
-        f"{TEAMS.get(away, away)}\n\n"
-    )
-
-    text += (
-        f"🏆 التوقع: "
-        f"{TEAMS.get(winner, winner)}\n"
-    )
-
-    text += (
-        f"🎯 النتيجة المتوقعة: "
-        f"{h_score} - {a_score}\n\n"
-    )
-
-    players = best_three_players(
-        home,
-        away
-    )
-
-    text += "🔥 أفضل 3 مرشحين للتسجيل:\n\n"
-
-    if players:
-
-        for i, player in enumerate(
-            players,
-            1
-        ):
-
-            text += (
-                f"{i}️⃣ {player['name']} "
-                f"➜ {player['probability']}%\n"
-            )
-
-    else:
-
-        text += (
-            "لم يتم العثور على بيانات كافية "
-            "للاعبي المباراة من الموقع.\n"
-        )
-
-    text += (
-        "\n⚠️ التوقع حسابي وليس ضماناً."
-    )
-
-    return text
-
-
-# ==================================================
-# مباريات اليوم
-# ==================================================
-
-def get_today():
-
-    try:
-
-        matches = today_matches()
+        matches = get_today_matches()
 
     except Exception as e:
 
-        print("ERROR:", e)
+        print("Fixture error:", e)
 
         return (
-            "❌ حدث خطأ أثناء جلب مباريات اليوم."
+            "❌ تعذر جلب مباريات اليوم.\n"
+            "حاول مرة أخرى."
         )
 
     if not matches:
 
         return (
-            "📅 لا توجد مباريات اليوم "
-            "حسب الجدول الموجود في المصدر."
+            "⚽ لا توجد مباريات للدوري الإنجليزي "
+            "اليوم حسب المصدر."
         )
 
-    result = (
-        "📅 مباريات الدوري الإنجليزي اليوم\n\n"
-    )
+    text = "⚽ مباريات الدوري الإنجليزي اليوم\n\n"
 
     for match in matches:
 
-        result += format_match(
-            match
+        home = TEAMS.get(
+            match["home"],
+            match["home"]
         )
 
-        result += (
-            "\n\n"
-            "━━━━━━━━━━━━━━\n\n"
+        away = TEAMS.get(
+            match["away"],
+            match["away"]
         )
 
-    return result
+        text += (
+            f"🏟 {home} 🆚 {away}\n\n"
+        )
+
+    return text
 
 
-# ==================================================
+# =========================
+# إحصائيات اللاعبين
+# =========================
+
+def get_stats_page():
+
+    try:
+
+        return get_page(STATS_URL)
+
+    except Exception as e:
+
+        print("Stats error:", e)
+
+        return ""
+
+
+# =========================
+# الهدافون
+# =========================
+
+def show_top_scorers():
+
+    stats = get_stats_page()
+
+    if not stats:
+
+        return (
+            "❌ لم أستطع جلب ترتيب الهدافين."
+        )
+
+    return (
+        "🥇 ترتيب هدافي الدوري الإنجليزي\n\n"
+        "ملاحظة:\n"
+        "صفحة الإحصائيات الرسمية تستخدم بيانات "
+        "ديناميكية، لذلك إذا لم تظهر الأرقام في "
+        "الصفحة العامة فلن يخترع البوت أرقامًا.\n\n"
+        "يمكنك فتح إحصائيات Premier League "
+        "للاطلاع على الترتيب الحالي."
+    )
+
+
+# =========================
+# أفضل لاعب
+# =========================
+
+def show_best_player():
+
+    stats = get_stats_page()
+
+    if not stats:
+
+        return (
+            "❌ لم أستطع جلب بيانات اللاعبين."
+        )
+
+    return (
+        "🏆 أفضل لاعب\n\n"
+        "يتم تحديد الأفضل من إحصائيات اللاعبين "
+        "المتاحة في المصدر الرسمي.\n\n"
+        "لن يعرض البوت لاعبًا أو رقمًا غير موجود "
+        "في المصدر."
+    )
+
+
+# =========================
 # Webhook
-# ==================================================
+# =========================
 
 @app.route(
     "/telegram/webhook",
@@ -485,56 +326,71 @@ def webhook():
         ""
     ).strip()
 
+    # البداية
     if text == "/start":
 
-        send(
+        send_message(
             chat_id,
-            "👋 أهلاً بك\n\n"
-            "أرسل 1230 للدخول."
+            "👋 أهلاً بك في بوت الدوري الإنجليزي.\n\n"
+            "أرسل رمز الدخول 1230."
         )
 
         return "OK"
 
+    # الدخول
     if text == ACCESS_CODE:
 
-        send(
+        main_menu(chat_id)
+
+        return "OK"
+
+    # المباريات
+    if text == "⚽ مباريات اليوم":
+
+        send_message(
             chat_id,
-            "✅ تم الدخول.\n\n"
-            "اكتب:\n"
-            "⚽ مباريات اليوم"
+            show_matches()
         )
 
         return "OK"
 
-    if (
-        "مباريات اليوم" in text
-        or "مباريات" in text
-        or text == "⚽"
-    ):
+    # الهدافون
+    if text == "🥇 ترتيب الهدافين":
 
-        send(
+        send_message(
             chat_id,
-            get_today()
+            show_top_scorers()
         )
 
         return "OK"
 
-    send(
+    # أفضل لاعب
+    if text == "🏆 أفضل لاعب":
+
+        send_message(
+            chat_id,
+            show_best_player()
+        )
+
+        return "OK"
+
+    # أي رسالة أخرى
+    send_message(
         chat_id,
-        "اكتب 1230 للبدء."
+        "اختر من القائمة الموجودة أسفل الشاشة."
     )
 
     return "OK"
 
 
-# ==================================================
+# =========================
 # Render
-# ==================================================
+# =========================
 
 @app.route("/")
 def home():
 
-    return "Football bot is running"
+    return "Premier League Bot is running"
 
 
 if __name__ == "__main__":

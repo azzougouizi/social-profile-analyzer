@@ -1,12 +1,16 @@
 import os
 import re
+import random
 import requests
+
 from bs4 import BeautifulSoup
 from flask import Flask, request
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 app = Flask(__name__)
+
+# =========================================================
+# الإعدادات
+# =========================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ACCESS_CODE = "1230"
@@ -16,481 +20,645 @@ TELEGRAM = f"https://api.telegram.org/bot{BOT_TOKEN}"
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 Chrome/120 Safari/537.36"
-    )
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/128.0 Safari/537.36"
+    ),
+    "Accept-Language": "ar,en;q=0.9",
 }
 
-# -----------------------------------------
-# أسماء الفرق بالعربية
-# -----------------------------------------
-
-TEAMS = {
-    "Arsenal": "أرسنال",
-    "AFC Bournemouth": "بورنموث",
-    "Aston Villa": "أستون فيلا",
-    "Brentford": "برينتفورد",
-    "Brighton & Hove Albion": "برايتون",
-    "Burnley": "بيرنلي",
-    "Chelsea": "تشيلسي",
-    "Crystal Palace": "كريستال بالاس",
-    "Coventry City": "كوفنتري سيتي",
-    "Everton": "إيفرتون",
-    "Fulham": "فولهام",
-    "Hull City": "هال سيتي",
-    "Ipswich Town": "إيبسويتش",
-    "Leeds United": "ليدز",
-    "Liverpool": "ليفربول",
-    "Manchester City": "مانشستر سيتي",
-    "Manchester United": "مانشستر يونايتد",
-    "Newcastle United": "نيوكاسل",
-    "Nottingham Forest": "نوتنغهام فورست",
-    "Sunderland": "سندرلاند",
-    "Tottenham Hotspur": "توتنهام",
-}
-
-# -----------------------------------------
-# إرسال رسالة
-# -----------------------------------------
-
-def send_message(chat_id, text):
-    try:
-        requests.post(
-            f"{TELEGRAM}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": text
-            },
-            timeout=15
-        )
-    except Exception:
-        pass
+TIMEOUT = 20
 
 
-# -----------------------------------------
-# القائمة
-# -----------------------------------------
-
-def main_menu(chat_id):
-
-    keyboard = {
-        "keyboard": [
-            ["⚽ مباريات اليوم"],
-            ["🥇 ترتيب الهدافين"],
-            ["🏆 أفضل لاعب"]
-        ],
-        "resize_keyboard": True
-    }
-
-    try:
-        requests.post(
-            f"{TELEGRAM}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": "اختر الخدمة:",
-                "reply_markup": keyboard
-            },
-            timeout=15
-        )
-    except Exception:
-        pass
-
-
-# -----------------------------------------
-# تحميل صفحة
-# -----------------------------------------
+# =========================================================
+# أدوات عامة
+# =========================================================
 
 def get_page(url):
-
+    """تحميل صفحة ويب."""
     try:
         response = requests.get(
             url,
             headers=HEADERS,
-            timeout=20
+            timeout=TIMEOUT
         )
 
         response.raise_for_status()
 
         return response.text
 
-    except Exception:
+    except Exception as e:
+        print(f"GET ERROR: {url} -> {e}")
         return None
 
 
-# -----------------------------------------
-# تحويل اسم الفريق
-# -----------------------------------------
+def clean_text(text):
+    """تنظيف النص."""
+    if not text:
+        return ""
 
-def arabic_team(name):
+    text = re.sub(r"\s+", " ", text)
 
-    name = name.strip()
-
-    return TEAMS.get(name, name)
-
-
-# -----------------------------------------
-# مباريات الدوري الإنجليزي
-# -----------------------------------------
-
-def get_fixtures():
-
-    url = (
-        "https://www.tntsports.co.uk/football/"
-        "premier-league/2026-2027/calendar-results.shtml"
-    )
-
-    html = get_page(url)
-
-    if not html:
-        return []
-
-    soup = BeautifulSoup(html, "html.parser")
-
-    text = soup.get_text(" ", strip=True)
-
-    # نبحث عن مباريات تحتوي على أسماء فرق معروفة
-    pattern = re.compile(
-        r"(Arsenal|AFC Bournemouth|Aston Villa|Brentford|"
-        r"Brighton & Hove Albion|Burnley|Chelsea|Crystal Palace|"
-        r"Coventry City|Everton|Fulham|Hull City|Ipswich Town|"
-        r"Leeds United|Liverpool|Manchester City|Manchester United|"
-        r"Newcastle United|Nottingham Forest|Sunderland|"
-        r"Tottenham Hotspur)"
-        r"\s+"
-        r"(?:\d{1,2}:\d{2}|\d+)"
-        r"\s+"
-        r"(Arsenal|AFC Bournemouth|Aston Villa|Brentford|"
-        r"Brighton & Hove Albion|Burnley|Chelsea|Crystal Palace|"
-        r"Coventry City|Everton|Fulham|Hull City|Ipswich Town|"
-        r"Leeds United|Liverpool|Manchester City|Manchester United|"
-        r"Newcastle United|Nottingham Forest|Sunderland|"
-        r"Tottenham Hotspur)",
-        re.IGNORECASE
-    )
-
-    matches = pattern.findall(text)
-
-    return matches
+    return text.strip()
 
 
-# -----------------------------------------
-# مباريات اليوم
-# -----------------------------------------
+def send_message(chat_id, text):
+    """إرسال رسالة Telegram."""
+    if not BOT_TOKEN:
+        print("BOT_TOKEN is missing.")
+        return False
 
-def show_matches():
-
-    today = datetime.now(
-        ZoneInfo("Europe/London")
-    ).strftime("%d/%m/%Y")
-
-    url = (
-        "https://www.tntsports.co.uk/football/"
-        "premier-league/2026-2027/calendar-results.shtml"
-    )
-
-    html = get_page(url)
-
-    if not html:
-        return (
-            "❌ لم أستطع الوصول إلى موقع المباريات الآن.\n"
-            "حاول مرة أخرى بعد قليل."
+    try:
+        response = requests.post(
+            f"{TELEGRAM}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": text,
+                "disable_web_page_preview": True
+            },
+            timeout=15
         )
 
-    soup = BeautifulSoup(html, "html.parser")
-
-    text = soup.get_text("\n", strip=True)
-
-    # البحث عن تاريخ اليوم
-    date_variants = [
-        datetime.now(
-            ZoneInfo("Europe/London")
-        ).strftime("%d/%m/%Y"),
-
-        datetime.now(
-            ZoneInfo("Europe/London")
-        ).strftime("%-d/%m/%Y"),
-    ]
-
-    found_date = None
-
-    for d in date_variants:
-        if d in text:
-            found_date = d
-            break
-
-    if not found_date:
-
-        return (
-            "⚽ مباريات الدوري الإنجليزي اليوم\n\n"
-            "لا توجد مباريات Premier League اليوم."
+        print(
+            "Telegram:",
+            response.status_code,
+            response.text[:300]
         )
 
-    # تقسيم الصفحة حول تاريخ اليوم
-    part = text.split(found_date, 1)[1]
+        return response.ok
 
-    # إذا كان هناك تاريخ اليوم التالي نوقف عنده
-    date_match = re.search(
-        r"\d{2}/\d{2}/\d{4}",
-        part
+    except Exception as e:
+        print("Telegram ERROR:", e)
+        return False
+
+
+# =========================================================
+# القائمة الرئيسية
+# =========================================================
+
+def main_menu(chat_id):
+
+    keyboard = {
+        "keyboard": [
+            ["📖 آية اليوم", "🤲 حديث اليوم"],
+            ["💎 نصيحة إيمانية", "📿 الأذكار"],
+            ["🎙️ بودكاست إيماني", "📚 فائدة إسلامية"],
+            ["🔄 تحديث المحتوى"]
+        ],
+        "resize_keyboard": True,
+        "one_time_keyboard": False
+    }
+
+    send_message(
+        chat_id,
+        "🕌 أهلاً بك في البوت الإسلامي\n\n"
+        "اختر ما تريد من القائمة:",
     )
 
-    if date_match:
-        part = part[:date_match.start()]
-
-    teams = list(TEAMS.keys())
-
-    games = []
-
-    lines = [
-        x.strip()
-        for x in part.splitlines()
-        if x.strip()
-    ]
-
-    for i in range(len(lines) - 2):
-
-        home = lines[i]
-        middle = lines[i + 1]
-        away = lines[i + 2]
-
-        if home in teams and away in teams:
-
-            if (
-                re.match(r"^\d{1,2}:\d{2}$", middle)
-                or re.match(r"^\d+$", middle)
-                or middle == "Finished"
-            ):
-
-                games.append(
-                    (
-                        arabic_team(home),
-                        middle,
-                        arabic_team(away)
-                    )
-                )
-
-    # إزالة التكرار
-    unique_games = []
-
-    for game in games:
-        if game not in unique_games:
-            unique_games.append(game)
-
-    if not unique_games:
-
-        return (
-            "⚽ مباريات الدوري الإنجليزي اليوم\n\n"
-            "لا توجد مباريات اليوم."
+    try:
+        requests.post(
+            f"{TELEGRAM}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": "👇 اختر الخدمة:",
+                "reply_markup": keyboard
+            },
+            timeout=15
         )
 
-    result = "⚽ مباريات الدوري الإنجليزي اليوم\n\n"
-
-    for home, time, away in unique_games:
-
-        result += (
-            f"🏟 {home}\n"
-            f"🆚 {away}\n"
-            f"⏰ {time}\n\n"
-        )
-
-    return result
+    except Exception as e:
+        print("MENU ERROR:", e)
 
 
-# -----------------------------------------
-# الهدافون
-# -----------------------------------------
+# =========================================================
+# آية اليوم
+# =========================================================
 
-def get_top_scorers():
+# أسماء السور
+SURAH_NAMES = {
+    1: "الفاتحة",
+    2: "البقرة",
+    3: "آل عمران",
+    4: "النساء",
+    5: "المائدة",
+    6: "الأنعام",
+    7: "الأعراف",
+    8: "الأنفال",
+    9: "التوبة",
+    10: "يونس",
+    11: "هود",
+    12: "يوسف",
+    13: "الرعد",
+    14: "إبراهيم",
+    15: "الحجر",
+    16: "النحل",
+    17: "الإسراء",
+    18: "الكهف",
+    19: "مريم",
+    20: "طه",
+    21: "الأنبياء",
+    22: "الحج",
+    23: "المؤمنون",
+    24: "النور",
+    25: "الفرقان",
+    26: "الشعراء",
+    27: "النمل",
+    28: "القصص",
+    29: "العنكبوت",
+    30: "الروم",
+    31: "لقمان",
+    32: "السجدة",
+    33: "الأحزاب",
+    34: "سبأ",
+    35: "فاطر",
+    36: "يس",
+    37: "الصافات",
+    38: "ص",
+    39: "الزمر",
+    40: "غافر",
+    41: "فصلت",
+    42: "الشورى",
+    43: "الزخرف",
+    44: "الدخان",
+    45: "الجاثية",
+    46: "الأحقاف",
+    47: "محمد",
+    48: "الفتح",
+    49: "الحجرات",
+    50: "ق",
+    51: "الذاريات",
+    52: "الطور",
+    53: "النجم",
+    54: "القمر",
+    55: "الرحمن",
+    56: "الواقعة",
+    57: "الحديد",
+    58: "المجادلة",
+    59: "الحشر",
+    60: "الممتحنة",
+    61: "الصف",
+    62: "الجمعة",
+    63: "المنافقون",
+    64: "التغابن",
+    65: "الطلاق",
+    66: "التحريم",
+    67: "الملك",
+    68: "القلم",
+    69: "الحاقة",
+    70: "المعارج",
+    71: "نوح",
+    72: "الجن",
+    73: "المزمل",
+    74: "المدثر",
+    75: "القيامة",
+    76: "الإنسان",
+    77: "المرسلات",
+    78: "النبأ",
+    79: "النازعات",
+    80: "عبس",
+    81: "التكوير",
+    82: "الانفطار",
+    83: "المطففين",
+    84: "الانشقاق",
+    85: "البروج",
+    86: "الطارق",
+    87: "الأعلى",
+    88: "الغاشية",
+    89: "الفجر",
+    90: "البلد",
+    91: "الشمس",
+    92: "الليل",
+    93: "الضحى",
+    94: "الشرح",
+    95: "التين",
+    96: "العلق",
+    97: "القدر",
+    98: "البينة",
+    99: "الزلزلة",
+    100: "العاديات",
+    101: "القارعة",
+    102: "التكاثر",
+    103: "العصر",
+    104: "الهمزة",
+    105: "الفيل",
+    106: "قريش",
+    107: "الماعون",
+    108: "الكوثر",
+    109: "الكافرون",
+    110: "النصر",
+    111: "المسد",
+    112: "الإخلاص",
+    113: "الفلق",
+    114: "الناس",
+}
 
-    url = (
-        "https://www.premierleague.com/en/"
-        "stats/top/players/goals/2026-27"
-    )
 
-    html = get_page(url)
+def get_random_ayah():
 
-    if not html:
-        return []
+    # نستخدم آية عشوائية من القرآن.
+    # المصدر هو صفحة الآية نفسها في Quran.com.
+    surah = random.randint(1, 114)
 
-    soup = BeautifulSoup(html, "html.parser")
+    # نستخدم رقم آية صغيرًا ثم نتحقق من الصفحة.
+    # إذا كانت الآية غير موجودة نعيد المحاولة.
+    for _ in range(10):
 
-    text = soup.get_text(" ", strip=True)
+        ayah = random.randint(1, 20)
 
-    players = []
+        url = f"https://quran.com/ar/{surah}:{ayah}"
 
-    # أسماء معروفة + عدد الأهداف
-    known_players = [
-        "Erling Haaland",
-        "Bruno Fernandes",
-        "Alexander Isak",
-        "Kai Havertz",
-        "Cole Palmer",
-        "Rayan Cherki",
-        "João Pedro",
-        "Anthony Elanga",
-        "Jack Hinshelwood",
-        "Morgan Rogers",
-        "Martin Ødegaard",
-        "Bukayo Saka",
-        "Bryan Mbeumo",
-    ]
+        html = get_page(url)
 
-    for player in known_players:
-
-        position = text.find(player)
-
-        if position == -1:
+        if not html:
             continue
 
-        nearby = text[position:position + 100]
+        soup = BeautifulSoup(html, "html.parser")
 
-        numbers = re.findall(
-            r"\b[1-9]\b",
-            nearby
+        text = clean_text(
+            soup.get_text(" ", strip=True)
         )
 
-        if numbers:
+        if not text:
+            continue
 
-            goals = int(numbers[-1])
+        # البحث عن صيغة السورة والآية
+        surah_name = SURAH_NAMES.get(
+            surah,
+            f"السورة {surah}"
+        )
 
-            players.append(
-                (player, goals)
+        # نبحث عن بداية النص بعد العنوان
+        pattern = re.compile(
+            rf"{re.escape(surah_name)}\s+{surah}:{ayah}\s+(.+?)(?:صفحة|جزء|اقرأ التفسير)",
+            re.IGNORECASE
+        )
+
+        match = pattern.search(text)
+
+        if match:
+
+            verse = clean_text(
+                match.group(1)
             )
 
-    players.sort(
-        key=lambda x: x[1],
-        reverse=True
+            # إزالة بعض العناصر الزائدة
+            if len(verse) > 10:
+
+                return (
+                    f"📖 آية اليوم\n\n"
+                    f"﴿{verse}﴾\n\n"
+                    f"📚 سورة {surah_name} — الآية {ayah}\n\n"
+                    f"🔗 المصدر: Quran.com"
+                )
+
+    return (
+        "📖 آية اليوم\n\n"
+        "تعذر جلب آية من المصدر الآن.\n"
+        "حاول مرة أخرى بعد قليل."
     )
 
-    return players
+
+# =========================================================
+# حديث اليوم
+# =========================================================
+
+def get_hadith():
+
+    # الدرر السنية توفر صفحات حديثية قابلة للقراءة.
+    # نستخدم مجموعة صفحات بحثية معروفة كمصدر.
+    urls = [
+        "https://dorar.net/hadith/sharh/139",
+        "https://dorar.net/hadith/sharh/149",
+        "https://dorar.net/hadith/sharh/155",
+    ]
+
+    random.shuffle(urls)
+
+    for url in urls:
+
+        html = get_page(url)
+
+        if not html:
+            continue
+
+        soup = BeautifulSoup(
+            html,
+            "html.parser"
+        )
+
+        text = clean_text(
+            soup.get_text(" ", strip=True)
+        )
+
+        if not text:
+            continue
+
+        # محاولة العثور على نص حديث
+        keywords = [
+            "خلاصة حكم المحدث",
+            "الراوي",
+            "المصدر"
+        ]
+
+        if not all(
+            keyword in text
+            for keyword in keywords
+        ):
+            continue
+
+        # استخراج جزء مناسب من الصفحة
+        start = text.find("خلاصة حكم المحدث")
+
+        if start > 0:
+
+            beginning = text[:start]
+
+            # آخر فقرة قبل معلومات التخريج
+            parts = re.split(
+                r"﻿|الراوي",
+                beginning
+            )
+
+            candidate = parts[-1].strip()
+
+            if len(candidate) > 30:
+
+                return (
+                    "🤲 حديث اليوم\n\n"
+                    f"«{candidate[:900]}»\n\n"
+                    "📚 المصدر: الموسوعة الحديثية - "
+                    "الدرر السنية\n\n"
+                    "⚠️ يُفضّل الرجوع إلى صفحة المصدر "
+                    "للتأكد من التفاصيل والتخريج."
+                )
+
+    return (
+        "🤲 حديث اليوم\n\n"
+        "تعذر جلب الحديث من المصدر الآن.\n"
+        "حاول مرة أخرى بعد قليل."
+    )
 
 
-# -----------------------------------------
-# مصدر بديل للهدافين
-# -----------------------------------------
+# =========================================================
+# نصائح إيمانية
+# =========================================================
 
-def get_top_scorers_backup():
+# هذه ليست أحاديث ولا ننسبها للنبي ﷺ.
+# هي نصائح عامة بصياغة البوت.
+
+TIPS = [
+    "حافظ على الصلاة في وقتها، واجعلها من أولويات يومك.",
+    "اجعل لك وردًا يوميًا من القرآن ولو كان قليلًا، فالمداومة خير.",
+    "أكثر من الاستغفار خلال يومك، وخصوصًا عندما تشعر بالضيق.",
+    "بر الوالدين من أعظم أبواب الخير، فاحرص على الكلام الطيب معهما.",
+    "لا تحتقر عملًا صالحًا صغيرًا؛ فالاستمرار على الخير مهم.",
+    "إذا أخطأت فلا تيأس، بادر بالتوبة والإصلاح ولا تؤجل الخير.",
+    "اجعل لسانك عامرًا بالذكر أثناء انتظارك أو تنقلك أو عملك.",
+    "الصدقة ليست بالمال فقط؛ الكلمة الطيبة والمعونة والابتسامة من الخير.",
+    "ابتعد عن الغيبة والنميمة، واحفظ لسانك ما استطعت.",
+    "خصص وقتًا يوميًا للدعاء بهدوء وخشوع.",
+]
+
+
+def show_tip():
+
+    tip = random.choice(TIPS)
+
+    return (
+        "💎 نصيحة إيمانية\n\n"
+        f"{tip}\n\n"
+        "🌿 نسأل الله أن ينفعنا وإياكم."
+    )
+
+
+# =========================================================
+# الأذكار
+# =========================================================
+
+def get_azkar():
 
     url = (
-        "https://www.tntsports.co.uk/football/"
-        "premier-league/2026-2027/"
+        "https://www.islamweb.net/"
+        "ar/article/178309/"
     )
 
     html = get_page(url)
 
     if not html:
-        return []
-
-    soup = BeautifulSoup(html, "html.parser")
-
-    text = soup.get_text(" ", strip=True)
-
-    names = [
-        "Bruno Fernandes",
-        "Erling Haaland",
-        "Alexander Isak",
-        "Josh Sargent",
-        "Kai Havertz",
-        "Cole Palmer",
-        "Rayan Cherki",
-        "João Pedro",
-        "Anthony Elanga",
-        "Jack Hinshelwood"
-    ]
-
-    result = []
-
-    for name in names:
-
-        if name in text:
-            result.append(name)
-
-    return result
-
-
-# -----------------------------------------
-# عرض الهدافين
-# -----------------------------------------
-
-def show_top_scorers():
-
-    players = get_top_scorers()
-
-    if not players:
-
-        # مصدر احتياطي
-        backup = get_top_scorers_backup()
-
-        if backup:
-
-            message = (
-                "🥇 ترتيب الهدافين\n\n"
-                "البيانات الحالية من موقع كرة القدم:\n\n"
-            )
-
-            for i, name in enumerate(
-                backup[:10],
-                1
-            ):
-                message += (
-                    f"{i}. {name}\n"
-                )
-
-            return message
 
         return (
-            "❌ تعذر جلب بيانات الهدافين الآن.\n\n"
-            "حاول مرة أخرى بعد قليل."
+            "📿 الأذكار\n\n"
+            "تعذر الوصول إلى مصدر الأذكار الآن."
         )
 
-    message = (
-        "🥇 هدافو الدوري الإنجليزي 2026/27\n\n"
+    soup = BeautifulSoup(
+        html,
+        "html.parser"
     )
 
-    for i, (player, goals) in enumerate(
-        players[:10],
-        1
-    ):
+    text = clean_text(
+        soup.get_text(" ", strip=True)
+    )
 
-        message += (
-            f"{i}. {player} — {goals} أهداف\n"
-        )
-
-    return message
-
-
-# -----------------------------------------
-# أفضل لاعب
-# -----------------------------------------
-
-def show_best_player():
-
-    players = get_top_scorers()
-
-    if not players:
+    if not text:
 
         return (
-            "❌ لا أستطيع جلب بيانات اللاعبين الآن.\n\n"
-            "حاول مرة أخرى بعد قليل."
+            "📿 الأذكار\n\n"
+            "تعذر استخراج الأذكار من المصدر."
         )
 
-    # في النسخة البسيطة:
-    # اللاعب صاحب أكبر عدد من الأهداف
-    # يعتبر أفضل لاعب هجومي إحصائياً.
+    # نبحث عن بداية أذكار الصباح
+    start = text.find("أذكار الصباح")
 
-    best_player, goals = players[0]
+    if start == -1:
+
+        return (
+            "📿 الأذكار\n\n"
+            "تعذر استخراج أذكار الصباح حاليًا."
+        )
+
+    content = text[start:]
+
+    # لا نرسل صفحة ضخمة جدًا إلى Telegram
+    content = content[:3500]
 
     return (
-        "🏆 أفضل لاعب حاليًا\n\n"
-        f"⭐ {best_player}\n"
-        f"⚽ الأهداف: {goals}\n\n"
-        "📊 الاختيار مبني على أفضل سجل تهديفي "
-        "حالي في الدوري."
+        "📿 أذكار الصباح والمساء\n\n"
+        f"{content}\n\n"
+        "📚 المصدر: إسلام ويب"
     )
 
 
-# -----------------------------------------
-# Webhook
-# -----------------------------------------
+# =========================================================
+# بودكاست إيماني
+# =========================================================
+
+def get_podcast():
+
+    # لا نخترع روابط صوتية.
+    # نستخدم صفحة بحث/استماع يمكن للمستخدم متابعتها.
+    return (
+        "🎙️ بودكاست إيماني\n\n"
+        "يمكنك الاستماع إلى محتوى إسلامي صوتي "
+        "من خلال المشاريع والمواقع الإسلامية الموثوقة.\n\n"
+        "🔊 للاستماع إلى القرآن الكريم والتلاوات:\n"
+        "https://quran.com/ar\n\n"
+        "🎧 اختر السورة والقارئ من الموقع."
+    )
+
+
+# =========================================================
+# فائدة إسلامية
+# =========================================================
+
+def get_islamic_info():
+
+    facts = [
+        (
+            "📚 فائدة إسلامية\n\n"
+            "القرآن الكريم هو كلام الله تعالى، "
+            "وتلاوته عبادة، والتدبر فيه يعين المسلم "
+            "على فهم معانيه والعمل بها."
+        ),
+        (
+            "📚 فائدة إسلامية\n\n"
+            "الذكر من أعظم الأعمال، وقد أمر الله "
+            "تعالى بالإكثار من ذكره."
+        ),
+        (
+            "📚 فائدة إسلامية\n\n"
+            "التوبة باب عظيم من أبواب الرحمة، "
+            "فلا ينبغي للمسلم أن ييأس من رحمة الله."
+        ),
+        (
+            "📚 فائدة إسلامية\n\n"
+            "من المهم عند نقل الحديث عن النبي ﷺ "
+            "التأكد من صحة الحديث ومصدره قبل نشره."
+        ),
+        (
+            "📚 فائدة إسلامية\n\n"
+            "من أجمل ما يعين على الاستمرار في الطاعة "
+            "أن يجعل المسلم لنفسه أعمالًا صالحة "
+            "يستطيع المداومة عليها."
+        ),
+    ]
+
+    return random.choice(facts)
+
+
+# =========================================================
+# معالجة الأوامر
+# =========================================================
+
+def handle_message(chat_id, text):
+
+    if text == "/start":
+
+        send_message(
+            chat_id,
+            "👋 أهلاً وسهلاً بك في البوت الإسلامي.\n\n"
+            "🕌 محتوى إيماني، آيات، أحاديث، "
+            "أذكار ونصائح.\n\n"
+            "🔐 أرسل رمز الدخول للمتابعة."
+        )
+
+        return
+
+    if text == ACCESS_CODE:
+
+        main_menu(chat_id)
+
+        return
+
+    if text == "📖 آية اليوم":
+
+        send_message(
+            chat_id,
+            "⏳ جاري جلب آية اليوم..."
+        )
+
+        send_message(
+            chat_id,
+            get_random_ayah()
+        )
+
+        return
+
+    if text == "🤲 حديث اليوم":
+
+        send_message(
+            chat_id,
+            "⏳ جاري البحث عن حديث من مصدر حديثي..."
+        )
+
+        send_message(
+            chat_id,
+            get_hadith()
+        )
+
+        return
+
+    if text == "💎 نصيحة إيمانية":
+
+        send_message(
+            chat_id,
+            show_tip()
+        )
+
+        return
+
+    if text == "📿 الأذكار":
+
+        send_message(
+            chat_id,
+            "⏳ جاري جلب الأذكار..."
+        )
+
+        send_message(
+            chat_id,
+            get_azkar()
+        )
+
+        return
+
+    if text == "🎙️ بودكاست إيماني":
+
+        send_message(
+            chat_id,
+            get_podcast()
+        )
+
+        return
+
+    if text == "📚 فائدة إسلامية":
+
+        send_message(
+            chat_id,
+            get_islamic_info()
+        )
+
+        return
+
+    if text == "🔄 تحديث المحتوى":
+
+        send_message(
+            chat_id,
+            "🔄 تم تحديث المحتوى.\n\n"
+            "اختر الخدمة التي تريدها من القائمة."
+        )
+
+        main_menu(chat_id)
+
+        return
+
+    send_message(
+        chat_id,
+        "❗ اختر خدمة من القائمة الموجودة أسفل الشاشة."
+    )
+
+
+# =========================================================
+# Webhook Telegram
+# =========================================================
 
 @app.route(
     "/telegram/webhook",
@@ -522,75 +690,40 @@ def webhook():
         ""
     ).strip()
 
-    # البداية
-    if text == "/start":
-
-        send_message(
-            chat_id,
-            "👋 أهلاً بك في بوت الدوري الإنجليزي.\n\n"
-            "🔐 أرسل رمز الدخول 1230."
-        )
-
-        return "OK"
-
-    # الدخول
-    if text == ACCESS_CODE:
-
-        main_menu(chat_id)
-
-        return "OK"
-
-    # المباريات
-    if text == "⚽ مباريات اليوم":
-
-        send_message(
-            chat_id,
-            show_matches()
-        )
-
-        return "OK"
-
-    # الهدافون
-    if text == "🥇 ترتيب الهدافين":
-
-        send_message(
-            chat_id,
-            show_top_scorers()
-        )
-
-        return "OK"
-
-    # أفضل لاعب
-    if text == "🏆 أفضل لاعب":
-
-        send_message(
-            chat_id,
-            show_best_player()
-        )
-
-        return "OK"
-
-    send_message(
+    handle_message(
         chat_id,
-        "اختر خدمة من القائمة الموجودة أسفل الشاشة."
+        text
     )
 
     return "OK"
 
 
-# -----------------------------------------
-# Health check
-# -----------------------------------------
+# =========================================================
+# الصفحة الرئيسية
+# =========================================================
 
 @app.route("/")
 def home():
 
-    return "Premier League Bot is running"
+    return "Islamic Telegram Bot is running"
 
 
-# -----------------------------------------
+# =========================================================
+# Health Check
+# =========================================================
+
+@app.route("/health")
+def health():
+
+    return {
+        "status": "ok",
+        "bot": "Islamic Telegram Bot"
+    }
+
+
+# =========================================================
 # تشغيل Flask
-# -----------------------------------------
+# =========================================================
 
 if __name__ == "__main__":
 

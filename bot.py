@@ -1,575 +1,928 @@
 import os
-import io
-import random
+import json
 import asyncio
+import logging
+import re
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
+import aiohttp
 import discord
-from discord.ext import commands
-from aiohttp import web, ClientSession
+from discord.ext import commands, tasks
+from bs4 import BeautifulSoup
 
 
 # =========================================================
-# الإعدادات
+# CONFIG
 # =========================================================
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-PORT = int(os.getenv("PORT", "8080"))
-PREFIX = "!"
+
+CHECK_INTERVAL_MINUTES = 5
+TIMEZONE = ZoneInfo("Africa/Algiers")
+
+PL_FIXTURES_URL = (
+    "https://www.premierleague.com/en/matches/"
+    "premier-league/2026-27"
+)
+
+ESPN_TABLE_URL = (
+    "https://www.espn.com/soccer/table/_/league/eng.1"
+)
+
+DATA_FILE = "cache.json"
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 Chrome/140 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+
+# =========================================================
+# LOGGING
+# =========================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s"
+)
+
+log = logging.getLogger("pl-bot")
+
+
+# =========================================================
+# DISCORD
+# =========================================================
 
 intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(
-    command_prefix=PREFIX,
+    command_prefix="!",
     intents=intents,
     help_command=None
 )
 
-http_session = None
-
 
 # =========================================================
-# محتوى البوت
+# CACHE
 # =========================================================
 
-AYAT = [
-    ("وَقُلْ رَبِّ زِدْنِي عِلْمًا", "طه", 114),
-    ("إِنَّ مَعَ الْعُسْرِ يُسْرًا", "الشرح", 6),
-    ("فَإِنَّ مَعَ الْعُسْرِ يُسْرًا", "الشرح", 5),
-    ("وَمَن يَتَّقِ اللَّهَ يَجْعَل لَّهُ مَخْرَجًا", "الطلاق", 2),
-    ("وَمَن يَتَوَكَّلْ عَلَى اللَّهِ فَهُوَ حَسْبُهُ", "الطلاق", 3),
-    ("إِنَّ اللَّهَ مَعَ الصَّابِرِينَ", "البقرة", 153),
-    ("وَاللَّهُ خَيْرٌ حَافِظًا وَهُوَ أَرْحَمُ الرَّاحِمِينَ", "يوسف", 64),
-    ("وَهُوَ مَعَكُمْ أَيْنَ مَا كُنتُمْ", "الحديد", 4),
-]
+def load_cache():
+    if not os.path.exists(DATA_FILE):
+        return {
+            "fixtures": [],
+            "table": [],
+            "last_update": None
+        }
 
-ADHKAR = [
-    "سُبْحَانَ اللَّهِ وَبِحَمْدِهِ.",
-    "سُبْحَانَ اللَّهِ، وَالْحَمْدُ لِلَّهِ، وَاللَّهُ أَكْبَرُ.",
-    "أَسْتَغْفِرُ اللَّهَ وَأَتُوبُ إِلَيْهِ.",
-    "لَا إِلَهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ.",
-    "اللَّهُمَّ صَلِّ وَسَلِّمْ عَلَى نَبِيِّنَا مُحَمَّدٍ.",
-    "حَسْبِيَ اللَّهُ لَا إِلَهَ إِلَّا هُوَ، عَلَيْهِ تَوَكَّلْتُ.",
-]
-
-AD3IYA = [
-    "اللهم اغفر لي وارحمني واهدني وعافني وارزقني.",
-    "ربنا آتنا في الدنيا حسنة وفي الآخرة حسنة وقنا عذاب النار.",
-    "رب اشرح لي صدري ويسر لي أمري.",
-    "اللهم أعني على ذكرك وشكرك وحسن عبادتك.",
-    "رب زدني علمًا.",
-    "اللهم إني أسألك الهدى والتقى والعفاف والغنى.",
-]
-
-NASAEH = [
-    "لا تؤجل الصلاة، فما بينك وبين الله أهم من كل شيء.",
-    "إذا ضاق صدرك، أكثر من ذكر الله واستعن به.",
-    "اجعل لك وردًا يوميًا من القرآن ولو كان قليلًا.",
-    "لا تنتظر أن تصبح مثاليًا حتى تبدأ طريقك إلى الله.",
-    "الكلمة الطيبة صدقة، فلا تبخل بها.",
-    "استغفر الله كثيرًا؛ واجعل الاستغفار عادة في يومك.",
-    "إذا أخطأت فلا تيأس، تب إلى الله وابدأ من جديد.",
-]
-
-# أحاديث قصيرة مشهورة مع التخريج
-# لا نضع حديثًا بدون مصدر.
-AHADITH = [
-    (
-        "إنما الأعمال بالنيات، وإنما لكل امرئ ما نوى.",
-        "متفق عليه"
-    ),
-    (
-        "من لا يَرحم لا يُرحم.",
-        "متفق عليه"
-    ),
-    (
-        "المسلم من سلم المسلمون من لسانه ويده.",
-        "متفق عليه"
-    ),
-    (
-        "يسروا ولا تعسروا، وبشروا ولا تنفروا.",
-        "متفق عليه"
-    ),
-    (
-        "خيركم من تعلم القرآن وعلمه.",
-        "رواه البخاري"
-    ),
-]
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {
+            "fixtures": [],
+            "table": [],
+            "last_update": None
+        }
 
 
-# =========================================================
-# معلومات السور للتلاوة
-# =========================================================
-
-SURAHES = {
-    "الفاتحة": 1,
-    "البقرة": 2,
-    "آل عمران": 3,
-    "النساء": 4,
-    "المائدة": 5,
-    "الأنعام": 6,
-    "الأعراف": 7,
-    "الأنفال": 8,
-    "التوبة": 9,
-    "يونس": 10,
-    "هود": 11,
-    "يوسف": 12,
-    "الرعد": 13,
-    "إبراهيم": 14,
-    "الحجر": 15,
-    "النحل": 16,
-    "الإسراء": 17,
-    "الكهف": 18,
-    "مريم": 19,
-    "طه": 20,
-    "الأنبياء": 21,
-    "الحج": 22,
-    "المؤمنون": 23,
-    "النور": 24,
-    "الفرقان": 25,
-    "الشعراء": 26,
-    "النمل": 27,
-    "القصص": 28,
-    "العنكبوت": 29,
-    "الروم": 30,
-    "لقمان": 31,
-    "السجدة": 32,
-    "الأحزاب": 33,
-    "سبأ": 34,
-    "فاطر": 35,
-    "يس": 36,
-    "الصافات": 37,
-    "ص": 38,
-    "الزمر": 39,
-    "غافر": 40,
-    "فصلت": 41,
-    "الشورى": 42,
-    "الزخرف": 43,
-    "الدخان": 44,
-    "الجاثية": 45,
-    "الأحقاف": 46,
-    "محمد": 47,
-    "الفتح": 48,
-    "الحجرات": 49,
-    "ق": 50,
-    "الذاريات": 51,
-    "الطور": 52,
-    "النجم": 53,
-    "القمر": 54,
-    "الرحمن": 55,
-    "الواقعة": 56,
-    "الحديد": 57,
-    "المجادلة": 58,
-    "الحشر": 59,
-    "الممتحنة": 60,
-    "الصف": 61,
-    "الجمعة": 62,
-    "المنافقون": 63,
-    "التغابن": 64,
-    "الطلاق": 65,
-    "التحريم": 66,
-    "الملك": 67,
-    "القلم": 68,
-    "الحاقة": 69,
-    "المعارج": 70,
-    "نوح": 71,
-    "الجن": 72,
-    "المزمل": 73,
-    "المدثر": 74,
-    "القيامة": 75,
-    "الإنسان": 76,
-    "المرسلات": 77,
-    "النبأ": 78,
-    "النازعات": 79,
-    "عبس": 80,
-    "التكوير": 81,
-    "الانفطار": 82,
-    "المطففين": 83,
-    "الانشقاق": 84,
-    "البروج": 85,
-    "الطارق": 86,
-    "الأعلى": 87,
-    "الغاشية": 88,
-    "الفجر": 89,
-    "البلد": 90,
-    "الشمس": 91,
-    "الليل": 92,
-    "الضحى": 93,
-    "الشرح": 94,
-    "التين": 95,
-    "العلق": 96,
-    "القدر": 97,
-    "البينة": 98,
-    "الزلزلة": 99,
-    "العاديات": 100,
-    "القارعة": 101,
-    "التكاثر": 102,
-    "العصر": 103,
-    "الهمزة": 104,
-    "الفيل": 105,
-    "قريش": 106,
-    "الماعون": 107,
-    "الكوثر": 108,
-    "الكافرون": 109,
-    "النصر": 110,
-    "المسد": 111,
-    "الإخلاص": 112,
-    "الفلق": 113,
-    "الناس": 114,
-}
-
-
-# آيات قصيرة مناسبة لإرسال مقطع صوتي
-RECITATION_AYAT = [
-    (1, 1, "الفاتحة"),
-    (1, 2, "الفاتحة"),
-    (1, 7, "الفاتحة"),
-    (2, 255, "البقرة"),
-    (2, 286, "البقرة"),
-    (3, 8, "آل عمران"),
-    (3, 26, "آل عمران"),
-    (13, 28, "الرعد"),
-    (39, 53, "الزمر"),
-    (94, 5, "الشرح"),
-    (94, 6, "الشرح"),
-    (112, 1, "الإخلاص"),
-    (112, 2, "الإخلاص"),
-    (112, 3, "الإخلاص"),
-    (112, 4, "الإخلاص"),
-    (113, 1, "الفلق"),
-    (114, 1, "الناس"),
-]
-
-
-# =========================================================
-# واجهة البوت
-# =========================================================
-
-def embed(title, description, emoji="🕌"):
-    return discord.Embed(
-        title=f"{emoji}  {title}",
-        description=description,
-        color=discord.Color.gold()
-    )
-
-
-@bot.event
-async def on_ready():
-    print(f"تم تسجيل الدخول باسم: {bot.user}")
-
-    await bot.change_presence(
-        activity=discord.Activity(
-            type=discord.ActivityType.listening,
-            name="القرآن الكريم | !اوامر"
+def save_cache(data):
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(
+            data,
+            f,
+            ensure_ascii=False,
+            indent=2
         )
-    )
+
+
+cache = load_cache()
 
 
 # =========================================================
-# الصفحة الرئيسية
+# HTTP
 # =========================================================
 
-@bot.command(name="اوامر", aliases=["help", "مساعدة"])
-async def commands_list(ctx):
+async def fetch_html(url):
+    timeout = aiohttp.ClientTimeout(total=30)
 
-    e = embed(
-        "نور",
-        (
-            "**رفيقك الديني في Discord**\n\n"
-            "📖 `!آية` — آية عشوائية\n"
-            "🎧 `!تلاوة` — مقطع تلاوة MP3 داخل Discord\n"
-            "💎 `!حديث` — حديث مع التخريج\n"
-            "🤲 `!ذكر` — ذكر\n"
-            "🌙 `!دعاء` — دعاء\n"
-            "💡 `!نصيحة` — نصيحة يومية\n\n"
-            "اكتب الأمر فقط، والبوت يتكفل بالباقي."
-        )
-    )
+    async with aiohttp.ClientSession(
+        headers=HEADERS,
+        timeout=timeout
+    ) as session:
 
-    await ctx.send(embed=e)
+        async with session.get(url) as response:
+
+            if response.status != 200:
+                raise RuntimeError(
+                    f"HTTP {response.status}: {url}"
+                )
+
+            return await response.text()
 
 
 # =========================================================
-# آية
+# HELPERS
 # =========================================================
 
-@bot.command(name="آية", aliases=["اية"])
-async def ayah(ctx):
-
-    text, surah, number = random.choice(AYAT)
-
-    e = embed(
-        "آية اليوم",
-        f"**﴿ {text} ﴾**\n\n"
-        f"📖 سورة **{surah}** — آية **{number}**",
-        "📖"
-    )
-
-    await ctx.send(embed=e)
+def clean_text(text):
+    return re.sub(r"\s+", " ", text).strip()
 
 
-# =========================================================
-# حديث
-# =========================================================
-
-@bot.command(name="حديث")
-async def hadith(ctx):
-
-    text, source = random.choice(AHADITH)
-
-    e = embed(
-        "حديث",
-        f"**«{text}»**\n\n"
-        f"📚 {source}",
-        "💎"
-    )
-
-    await ctx.send(embed=e)
-
-
-# =========================================================
-# ذكر
-# =========================================================
-
-@bot.command(name="ذكر")
-async def dhikr(ctx):
-
-    text = random.choice(ADHKAR)
-
-    e = embed(
-        "ذكر",
-        f"**{text}**",
-        "🤲"
-    )
-
-    await ctx.send(embed=e)
-
-
-# =========================================================
-# دعاء
-# =========================================================
-
-@bot.command(name="دعاء")
-async def dua(ctx):
-
-    text = random.choice(AD3IYA)
-
-    e = embed(
-        "دعاء",
-        f"**{text}**",
-        "🌙"
-    )
-
-    await ctx.send(embed=e)
-
-
-# =========================================================
-# نصيحة
-# =========================================================
-
-@bot.command(name="نصيحة")
-async def advice(ctx):
-
-    text = random.choice(NASAEH)
-
-    e = embed(
-        "نصيحة",
-        f"**{text}**",
-        "💡"
-    )
-
-    await ctx.send(embed=e)
-
-
-# =========================================================
-# التلاوة الصوتية
-# =========================================================
-
-def audio_url(surah, ayah):
+def parse_date(text):
     """
-    ملف آية واحد من EveryAyah.
-    القارئ: مشاري العفاسي - 128kbps
+    يحاول تحويل التاريخ من عدة صيغ.
     """
+
+    formats = [
+        "%Y-%m-%d %H:%M",
+        "%d/%m/%Y %H:%M",
+        "%d-%m-%Y %H:%M",
+    ]
+
+    for fmt in formats:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            pass
+
+    return None
+
+
+def team_match(team, query):
+    team = team.lower()
+    query = query.lower()
+
+    aliases = {
+        "man utd": "manchester united",
+        "man united": "manchester united",
+        "man city": "manchester city",
+        "spurs": "tottenham",
+        "tottenham": "tottenham hotspur",
+        "wolves": "wolverhampton",
+        "nott'm forest": "nottingham forest",
+        "forest": "nottingham forest",
+        "brighton": "brighton & hove albion",
+        "newcastle": "newcastle united",
+        "villa": "aston villa",
+        "west ham": "west ham united",
+        "leeds": "leeds united",
+        "arsenal": "arsenal",
+        "liverpool": "liverpool",
+        "chelsea": "chelsea",
+    }
+
+    query = aliases.get(query, query)
+
     return (
-        "https://everyayah.com/data/"
-        f"Alafasy_128kbps/{surah:03d}{ayah:03d}.mp3"
+        query in team
+        or team in query
     )
 
 
-async def download_audio(url):
+# =========================================================
+# PREMIER LEAGUE SCRAPER
+# =========================================================
 
-    global http_session
+async def scrape_premier_league():
 
-    if http_session is None:
-        http_session = ClientSession()
+    html = await fetch_html(PL_FIXTURES_URL)
 
-    async with http_session.get(
-        url,
-        timeout=30
-    ) as response:
+    soup = BeautifulSoup(html, "html.parser")
 
-        if response.status != 200:
-            raise RuntimeError(
-                f"Audio download failed: {response.status}"
+    fixtures = []
+
+    # -----------------------------------------------------
+    # محاولة قراءة البيانات الموجودة في الصفحة
+    # -----------------------------------------------------
+
+    text = soup.get_text(" ", strip=True)
+
+    # نبحث عن عناصر المباريات المحتملة.
+    # تصميم PL قد يتغير، لذلك توجد عدة selectors.
+    selectors = [
+        "[data-testid*='fixture']",
+        "[class*='fixture']",
+        "[class*='Fixture']",
+        "[class*='match']",
+        "[class*='Match']",
+    ]
+
+    elements = []
+
+    for selector in selectors:
+        found = soup.select(selector)
+
+        if found:
+            elements.extend(found)
+
+    # إزالة التكرار
+    unique = []
+
+    seen = set()
+
+    for element in elements:
+
+        value = clean_text(element.get_text(" ", strip=True))
+
+        if not value:
+            continue
+
+        if value in seen:
+            continue
+
+        seen.add(value)
+        unique.append(value)
+
+    # -----------------------------------------------------
+    # محاولة استخراج المباريات من النص
+    # -----------------------------------------------------
+
+    team_names = [
+        "Arsenal",
+        "Aston Villa",
+        "Bournemouth",
+        "Brentford",
+        "Brighton",
+        "Burnley",
+        "Chelsea",
+        "Crystal Palace",
+        "Everton",
+        "Fulham",
+        "Leeds United",
+        "Liverpool",
+        "Manchester City",
+        "Manchester United",
+        "Newcastle United",
+        "Nottingham Forest",
+        "Sunderland",
+        "Tottenham Hotspur",
+        "West Ham United",
+        "Wolverhampton Wanderers",
+        "Coventry City",
+        "Hull City",
+        "Ipswich Town",
+    ]
+
+    # -----------------------------------------------------
+    # البحث عن JSON مضمّن في الصفحة
+    # -----------------------------------------------------
+
+    scripts = soup.find_all("script")
+
+    json_strings = []
+
+    for script in scripts:
+
+        content = script.string
+
+        if not content:
+            continue
+
+        if "Arsenal" in content or "Liverpool" in content:
+            json_strings.append(content)
+
+    # محاولة عامة لاستخراج أزواج الفرق
+    for script_text in json_strings:
+
+        for home in team_names:
+
+            for away in team_names:
+
+                if home == away:
+                    continue
+
+                pattern = (
+                    rf'"(?:homeTeam|home|name)"\s*:\s*'
+                    rf'"{re.escape(home)}".{{0,1500}}?'
+                    rf'"(?:awayTeam|away|name)"\s*:\s*'
+                    rf'"{re.escape(away)}"'
+                )
+
+                if re.search(
+                    pattern,
+                    script_text,
+                    flags=re.IGNORECASE | re.DOTALL
+                ):
+
+                    key = f"{home}|{away}"
+
+                    if not any(
+                        f"{x['home']}|{x['away']}" == key
+                        for x in fixtures
+                    ):
+                        fixtures.append({
+                            "home": home,
+                            "away": away,
+                            "date": None,
+                            "status": "مجدولة",
+                            "score": None,
+                            "source": "Premier League"
+                        })
+
+    # -----------------------------------------------------
+    # fallback
+    # -----------------------------------------------------
+
+    if not fixtures:
+        log.warning(
+            "Premier League scraper returned no structured fixtures."
+        )
+
+    return fixtures
+
+
+# =========================================================
+# ESPN TABLE SCRAPER
+# =========================================================
+
+async def scrape_espn_table():
+
+    html = await fetch_html(ESPN_TABLE_URL)
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    rows = []
+
+    # ESPN يستخدم جدول standings
+    table_rows = soup.select("table tr")
+
+    for tr in table_rows:
+
+        cells = [
+            clean_text(td.get_text(" ", strip=True))
+            for td in tr.find_all(["td", "th"])
+        ]
+
+        if len(cells) < 5:
+            continue
+
+        text = " ".join(cells)
+
+        # نحاول العثور على فريق PL
+        known_team = None
+
+        for team in [
+            "Arsenal",
+            "Aston Villa",
+            "Bournemouth",
+            "Brentford",
+            "Brighton & Hove Albion",
+            "Chelsea",
+            "Crystal Palace",
+            "Everton",
+            "Fulham",
+            "Leeds United",
+            "Liverpool",
+            "Manchester City",
+            "Manchester United",
+            "Newcastle United",
+            "Nottingham Forest",
+            "Sunderland",
+            "Tottenham Hotspur",
+            "West Ham United",
+            "Wolverhampton Wanderers",
+            "Coventry City",
+            "Hull City",
+            "Ipswich Town",
+        ]:
+
+            if team.lower() in text.lower():
+                known_team = team
+                break
+
+        if not known_team:
+            continue
+
+        numbers = []
+
+        for cell in cells:
+            if re.fullmatch(r"-?\d+", cell):
+                numbers.append(int(cell))
+
+        if len(numbers) >= 7:
+
+            rows.append({
+                "team": known_team,
+                "played": numbers[0],
+                "wins": numbers[1],
+                "draws": numbers[2],
+                "losses": numbers[3],
+                "gf": numbers[4],
+                "ga": numbers[5],
+                "gd": numbers[6],
+                "points": numbers[7] if len(numbers) > 7 else 0,
+            })
+
+    # إذا لم نستطع القراءة
+    if not rows:
+        log.warning("ESPN table scraper returned no rows.")
+
+    # ترتيب حسب النقاط
+    rows.sort(
+        key=lambda x: (
+            x["points"],
+            x["gd"],
+            x["gf"]
+        ),
+        reverse=True
+    )
+
+    return rows
+
+
+# =========================================================
+# DATA UPDATE
+# =========================================================
+
+async def update_data():
+
+    global cache
+
+    old_fixtures = cache.get("fixtures", [])
+    old_table = cache.get("table", [])
+
+    try:
+        new_fixtures = await scrape_premier_league()
+    except Exception as e:
+
+        log.exception(
+            "Premier League scraping failed: %s",
+            e
+        )
+
+        new_fixtures = old_fixtures
+
+    try:
+        new_table = await scrape_espn_table()
+    except Exception as e:
+
+        log.exception(
+            "ESPN scraping failed: %s",
+            e
+        )
+
+        new_table = old_table
+
+    changed = (
+        new_fixtures != old_fixtures
+        or new_table != old_table
+    )
+
+    cache = {
+        "fixtures": new_fixtures,
+        "table": new_table,
+        "last_update": datetime.now(
+            TIMEZONE
+        ).isoformat()
+    }
+
+    save_cache(cache)
+
+    return changed
+
+
+# =========================================================
+# FIXTURE FILTERS
+# =========================================================
+
+def get_today_fixtures():
+
+    today = datetime.now(TIMEZONE).date()
+
+    result = []
+
+    for match in cache["fixtures"]:
+
+        date_text = match.get("date")
+
+        if not date_text:
+            continue
+
+        try:
+            dt = datetime.fromisoformat(date_text)
+
+            if dt.date() == today:
+                result.append(match)
+
+        except Exception:
+            pass
+
+    return result
+
+
+def get_tomorrow_fixtures():
+
+    tomorrow = (
+        datetime.now(TIMEZONE).date()
+        + timedelta(days=1)
+    )
+
+    result = []
+
+    for match in cache["fixtures"]:
+
+        date_text = match.get("date")
+
+        if not date_text:
+            continue
+
+        try:
+            dt = datetime.fromisoformat(date_text)
+
+            if dt.date() == tomorrow:
+                result.append(match)
+
+        except Exception:
+            pass
+
+    return result
+
+
+def get_next_days(days=3):
+
+    now = datetime.now(TIMEZONE)
+
+    end = now + timedelta(days=days)
+
+    result = []
+
+    for match in cache["fixtures"]:
+
+        date_text = match.get("date")
+
+        if not date_text:
+            continue
+
+        try:
+            dt = datetime.fromisoformat(date_text)
+
+            if now <= dt <= end:
+                result.append(match)
+
+        except Exception:
+            pass
+
+    return result
+
+
+# =========================================================
+# DISCORD FORMATTING
+# =========================================================
+
+def format_match(match):
+
+    home = match.get("home", "?")
+    away = match.get("away", "?")
+
+    score = match.get("score")
+
+    status = match.get("status", "مجدولة")
+
+    date_text = match.get("date")
+
+    if score:
+        result = f"**{home} {score} {away}**"
+    else:
+        result = f"**{home} vs {away}**"
+
+    if date_text:
+
+        try:
+            dt = datetime.fromisoformat(date_text)
+
+            result += (
+                f"\n🕐 {dt.astimezone(TIMEZONE):%d/%m %H:%M}"
             )
 
-        data = await response.read()
+        except Exception:
+            pass
 
-        if not data:
-            raise RuntimeError("Audio file is empty")
+    result += f"\n📌 {status}"
 
-        return data
+    return result
 
 
-@bot.command(name="تلاوة")
-async def recitation(ctx):
+def format_matches(matches, title):
 
-    surah, ayah, surah_name = random.choice(
-        RECITATION_AYAT
+    if not matches:
+        return f"⚽ **{title}**\n\nلا توجد مباريات."
+
+    text = f"⚽ **{title}**\n\n"
+
+    for match in matches[:20]:
+
+        text += format_match(match)
+        text += "\n\n"
+
+    return text
+
+
+# =========================================================
+# COMMANDS
+# =========================================================
+
+@bot.command(name="اليوم")
+async def today(ctx):
+
+    await update_data()
+
+    matches = get_today_fixtures()
+
+    await ctx.send(
+        format_matches(
+            matches,
+            "مباريات اليوم"
+        )
     )
 
-    message = await ctx.send(
-        "🎧 **جاري تجهيز التلاوة...**"
+
+@bot.command(name="غدا")
+async def tomorrow(ctx):
+
+    await update_data()
+
+    matches = get_tomorrow_fixtures()
+
+    await ctx.send(
+        format_matches(
+            matches,
+            "مباريات غداً"
+        )
     )
+
+
+@bot.command(name="قبل3")
+async def next_three(ctx):
+
+    await update_data()
+
+    matches = get_next_days(3)
+
+    await ctx.send(
+        format_matches(
+            matches,
+            "المباريات القادمة"
+        )
+    )
+
+
+@bot.command(name="مباشر")
+async def live(ctx):
+
+    await update_data()
+
+    live_matches = []
+
+    for match in cache["fixtures"]:
+
+        status = str(
+            match.get("status", "")
+        ).lower()
+
+        if any(
+            word in status
+            for word in [
+                "live",
+                "مباشر",
+                "half",
+                "ht",
+                "45",
+                "90"
+            ]
+        ):
+            live_matches.append(match)
+
+    await ctx.send(
+        format_matches(
+            live_matches,
+            "المباريات المباشرة"
+        )
+    )
+
+
+@bot.command(name="الترتيب")
+async def table(ctx):
+
+    await update_data()
+
+    rows = cache.get("table", [])
+
+    if not rows:
+
+        await ctx.send(
+            "❌ لم أستطع الحصول على جدول الدوري حالياً."
+        )
+
+        return
+
+    message = "🏆 **ترتيب الدوري الإنجليزي**\n\n"
+
+    for index, row in enumerate(rows, start=1):
+
+        message += (
+            f"**{index}. {row['team']}** — "
+            f"{row['points']} نقطة "
+            f"({row['played']} مباراة)\n"
+        )
+
+    # Discord message limit
+    await ctx.send(message[:1900])
+
+
+@bot.command(name="فريق")
+async def team(ctx, *, team_name=None):
+
+    if not team_name:
+
+        await ctx.send(
+            "استخدم:\n`!فريق Arsenal`\n"
+            "أو\n"
+            "`!فريق Liverpool`"
+        )
+
+        return
+
+    await update_data()
+
+    matches = []
+
+    for match in cache["fixtures"]:
+
+        if (
+            team_match(
+                match.get("home", ""),
+                team_name
+            )
+            or
+            team_match(
+                match.get("away", ""),
+                team_name
+            )
+        ):
+            matches.append(match)
+
+    if not matches:
+
+        await ctx.send(
+            f"❌ لم أجد مباريات للفريق: `{team_name}`"
+        )
+
+        return
+
+    await ctx.send(
+        format_matches(
+            matches[:10],
+            f"مباريات {team_name}"
+        )
+    )
+
+
+@bot.command(name="تحديث")
+async def manual_update(ctx):
+
+    changed = await update_data()
+
+    if changed:
+
+        await ctx.send(
+            "🔄 تم تحديث البيانات ووجدت تغييرات جديدة."
+        )
+
+    else:
+
+        await ctx.send(
+            "✅ تم الفحص. لا توجد تغييرات."
+        )
+
+
+# =========================================================
+# HELP
+# =========================================================
+
+@bot.command(name="مساعدة")
+async def help_command(ctx):
+
+    text = """
+⚽ **Premier League Bot**
+
+`!اليوم`
+مباريات اليوم
+
+`!غدا`
+مباريات الغد
+
+`!قبل3`
+المباريات القادمة خلال 3 أيام
+
+`!مباشر`
+المباريات المباشرة
+
+`!الترتيب`
+جدول الدوري
+
+`!فريق Arsenal`
+مباريات فريق معين
+
+`!تحديث`
+إجبار البوت على تحديث البيانات
+
+`!مساعدة`
+عرض هذه القائمة
+"""
+
+    await ctx.send(text)
+
+
+# =========================================================
+# AUTO UPDATE
+# =========================================================
+
+@tasks.loop(minutes=CHECK_INTERVAL_MINUTES)
+async def automatic_update():
 
     try:
 
-        url = audio_url(surah, ayah)
+        changed = await update_data()
 
-        audio_data = await download_audio(url)
+        if changed:
 
-        filename = f"تلاوة_{surah_name}_{ayah}.mp3"
-
-        file = discord.File(
-            io.BytesIO(audio_data),
-            filename=filename
-        )
-
-        e = embed(
-            "تلاوة قصيرة",
-            (
-                f"📖 سورة **{surah_name}**\n"
-                f"🔢 الآية **{ayah}**\n\n"
-                "🎧 استمع للتلاوة من المرفق."
-            ),
-            "🎧"
-        )
-
-        await message.delete()
-
-        await ctx.send(
-            embed=e,
-            file=file
-        )
-
-    except Exception as error:
-
-        print("RECITATION ERROR:", error)
-
-        await message.edit(
-            content=(
-                "❌ تعذر تجهيز التلاوة الآن.\n"
-                "حاول مرة أخرى بعد قليل."
+            log.info(
+                "New Premier League data detected."
             )
+
+            # ------------------------------------------------
+            # إذا أردت إرسال إشعار تلقائي:
+            #
+            # ضع CHANNEL_ID في Render
+            # ------------------------------------------------
+
+            channel_id = os.getenv("CHANNEL_ID")
+
+            if channel_id:
+
+                channel = bot.get_channel(
+                    int(channel_id)
+                )
+
+                if channel:
+
+                    await channel.send(
+                        "🔄 **تم تحديث بيانات الدوري الإنجليزي.**\n"
+                        "استخدم `!اليوم` أو `!قبل3` لعرض البيانات."
+                    )
+
+        else:
+
+            log.info(
+                "No changes detected."
+            )
+
+    except Exception as e:
+
+        log.exception(
+            "Automatic update failed: %s",
+            e
         )
 
 
-# =========================================================
-# أمر سريع: نور
-# =========================================================
+@automatic_update.before_loop
+async def before_automatic_update():
 
-@bot.command(name="نور")
-async def noor(ctx):
-
-    e = embed(
-        "نور",
-        (
-            "اختر ما تحتاجه:\n\n"
-            "📖 `!آية`\n"
-            "🎧 `!تلاوة`\n"
-            "💎 `!حديث`\n"
-            "🤲 `!ذكر`\n"
-            "🌙 `!دعاء`\n"
-            "💡 `!نصيحة`"
-        )
-    )
-
-    await ctx.send(embed=e)
+    await bot.wait_until_ready()
 
 
 # =========================================================
-# أخطاء الأوامر
+# BOT EVENTS
 # =========================================================
 
 @bot.event
-async def on_command_error(ctx, error):
+async def on_ready():
 
-    if isinstance(error, commands.CommandNotFound):
-        return
+    log.info(
+        "Logged in as %s (%s)",
+        bot.user,
+        bot.user.id
+    )
 
-    if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(
-            "⚠️ الأمر ناقص. اكتب `!اوامر` لمعرفة الاستخدام."
-        )
-        return
+    if not automatic_update.is_running():
 
-    print("COMMAND ERROR:", error)
+        automatic_update.start()
 
 
 # =========================================================
-# Web server لـ Render
+# START
 # =========================================================
 
-async def health(request):
-    return web.Response(
-        text="نور يعمل بشكل طبيعي 🕌"
+if not TOKEN:
+
+    raise RuntimeError(
+        "DISCORD_TOKEN is not configured."
     )
 
 
-async def start_web_server():
-
-    app = web.Application()
-
-    app.router.add_get("/", health)
-    app.router.add_get("/health", health)
-
-    runner = web.AppRunner(app)
-
-    await runner.setup()
-
-    site = web.TCPSite(
-        runner,
-        "0.0.0.0",
-        PORT
-    )
-
-    await site.start()
-
-    print(f"Web server running on port {PORT}")
-
-
-# =========================================================
-# التشغيل
-# =========================================================
-
-async def main():
-
-    global http_session
-
-    if not TOKEN:
-        print("❌ لم يتم العثور على DISCORD_TOKEN")
-        return
-
-    await start_web_server()
-
-    async with ClientSession() as session:
-
-        http_session = session
-
-        async with bot:
-
-            await bot.start(TOKEN)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+bot.run(TOKEN)
